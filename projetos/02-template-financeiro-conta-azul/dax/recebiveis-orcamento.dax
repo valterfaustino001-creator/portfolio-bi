@@ -1,0 +1,49 @@
+// =============================================================
+// Recebíveis, aging e orçamento — medidas selecionadas
+// Projeto: Template Financeiro ERP Conta Azul
+// =============================================================
+
+// Aging: soma o vencido de cada faixa de dias definida na tabela dAgingCR
+// (ex.: 1-30, 31-60, 61-90, >90). Colocada numa matriz com dAgingCR[Faixa],
+// cada linha mostra só os títulos daquela faixa.
+Valor CR (Aging) =
+CALCULATE (
+    [Receber Vencidos],
+    FILTER (
+        fContasReceber,
+        COUNTROWS (
+            FILTER (
+                dAgingCR,
+                DATEDIFF ( fContasReceber[Data Vencto], TODAY (), DAY ) >= dAgingCR[Min]
+                    && DATEDIFF ( fContasReceber[Data Vencto], TODAY (), DAY ) <= dAgingCR[Max]
+            )
+        ) > 0
+    )
+)
+
+// Prazo médio de recebimento ponderado pelo valor
+Prazo Médio Recebimento =
+VAR PrazoxTitulos = SUMX ( fContasReceber, fContasReceber[PrazoDias] * fContasReceber[valor] )
+RETURN
+    DIVIDE ( PrazoxTitulos, [Total Geral CR] )
+
+Inadimplência =
+DIVIDE ( [Receber Vencidos], [Recebidos] + [Receber Vencidos], 0 )
+
+// Saldo acumulado até a data do contexto
+Saldo Acu. =
+VAR vDtaatual = MAX ( 'dCalendário'[Data] )
+RETURN
+    CALCULATE (
+        [Saldo Final],
+        FILTER ( ALL ( 'dCalendário' ), 'dCalendário'[Data] <= vDtaatual )
+    )
+
+// Atingimento de meta
+% Meta Receita =
+DIVIDE ( [iReceitas.Realizado], [iReceitas.Previsto] )
+
+% Meta Despesa =
+DIVIDE ( [iDespesas.Realizado], [iDespesas.Previsto] )
+// Atenção: em despesa, valor acima de 100% é estouro de orçamento (sinal ruim).
+// A formatação condicional usa a lógica inversa da receita.
