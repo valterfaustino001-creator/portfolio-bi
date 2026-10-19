@@ -1,0 +1,40 @@
+// =============================================================
+// Indicadores de pessoas
+// Projeto: BI Contábil, Fiscal e RH (ERP SCI)
+// =============================================================
+
+// Headcount em qualquer data = contratações acumuladas - demissões acumuladas.
+// Dispensa uma tabela de "foto" mensal de colaboradores ativos.
+Headcount =
+CALCULATE (
+    [Contratações] - [Demissões],
+    FILTER ( ALL ( 'dCalendário' ), 'dCalendário'[Data] <= MAX ( 'dCalendário'[Data] ) )
+)
+
+// Headcount no início do período selecionado
+Headcount Inicial =
+VAR _Contratados_acum =
+    CALCULATE (
+        [Contratações],
+        FILTER ( ALL ( 'dCalendário'[Data] ), 'dCalendário'[Data] < MIN ( 'dCalendário'[Data] ) )
+    )
+VAR _Desligados_acum =
+    CALCULATE (
+        [Demissões],
+        FILTER ( ALL ( 'dCalendário'[Data] ), 'dCalendário'[Data] < MIN ( 'dCalendário'[Data] ) )
+    )
+RETURN
+    _Contratados_acum - _Desligados_acum
+
+// Turnover = média de (contratações + demissões) / headcount médio do período
+% Turnover =
+VAR _Movimentacao = DIVIDE ( [Contratações] + [Demissões], 2 )
+VAR _HCMedio = DIVIDE ( [Headcount Inicial] + [Headcount], 2 )
+RETURN
+    DIVIDE ( _Movimentacao, _HCMedio )
+
+// Turnover do último ano selecionado
+% Turnover Ano Max =
+VAR vAnoMax = MAX ( 'dCalendário'[Ano] )
+RETURN
+    CALCULATE ( [% Turnover], 'dCalendário'[Ano] = vAnoMax )

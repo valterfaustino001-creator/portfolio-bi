@@ -1,0 +1,48 @@
+// =============================================================
+// Índices financeiros a partir do plano de contas
+// Projeto: BI Contábil, Fiscal e RH (ERP SCI)
+//
+// PLANOS_TPLA[ORDEM01] = grupo (1 Ativo, 2 Passivo)
+// PLANOS_TPLA[ORDEM02] = subgrupo (11 Ativo Circulante, 12 Ativo Não Circulante,
+//                                  21 Passivo Circulante, 22 Passivo Não Circulante)
+// PLANOS_TPLA[ORDEM04] = conta analítica (usado para isolar estoques)
+// =============================================================
+
+Índice Liquidez Corrente =
+VAR _AC = CALCULATE ( [Saldo Atual], 'PLANOS_TPLA'[ORDEM02] = 11 )
+VAR _PC = CALCULATE ( ABS ( [Saldo Atual] ), 'PLANOS_TPLA'[ORDEM02] = 21 )
+RETURN
+    DIVIDE ( _AC, _PC, 0 )
+
+Índice Liquidez Seca =
+VAR _AC = CALCULATE ( [Saldo Atual], 'PLANOS_TPLA'[ORDEM02] = 11 )
+VAR _ESTOQUES =
+    CALCULATE ( [Saldo Atual], 'PLANOS_TPLA'[ORDEM04] IN { 11210, 11211, 11401 } )
+VAR _PC = CALCULATE ( ABS ( [Saldo Atual] ), 'PLANOS_TPLA'[ORDEM02] = 21 )
+RETURN
+    DIVIDE ( _AC - _ESTOQUES, _PC, 0 )
+
+Índice Liquidez Geral =
+VAR _AC  = CALCULATE ( [Saldo Atual], 'PLANOS_TPLA'[ORDEM02] = 11 )
+VAR _ANC = CALCULATE ( [Saldo Atual], 'PLANOS_TPLA'[ORDEM02] = 12 )
+VAR _PC  = CALCULATE ( ABS ( [Saldo Atual] ), 'PLANOS_TPLA'[ORDEM02] = 21 )
+VAR _PNC = CALCULATE ( ABS ( [Saldo Atual] ), 'PLANOS_TPLA'[ORDEM02] = 22 )
+RETURN
+    DIVIDE ( _AC + _ANC, _PC + _PNC, 0 )
+
+Índice Liquidez Geral AA =
+CALCULATE ( [Índice Liquidez Geral], SAMEPERIODLASTYEAR ( 'dCalendário'[Data] ) )
+
+// Farol para formatação condicional
+Cor Liquidez Seca =
+SWITCH ( TRUE (), [Índice Liquidez Seca] >= 0.96, "Green", "Red" )
+
+Índice Endividamento Geral =
+VAR _PC = CALCULATE ( ABS ( [Saldo Atual] ), 'PLANOS_TPLA'[ORDEM02] = 21 )
+VAR _PNC = CALCULATE ( ABS ( [Saldo Atual] ), 'PLANOS_TPLA'[ORDEM02] = 22 )
+VAR _ATIVO = CALCULATE ( [Saldo Atual], 'PLANOS_TPLA'[ORDEM01] = 1 )
+RETURN
+    DIVIDE ( _PC + _PNC, _ATIVO, 0 )
+
+Carga Tributária =
+DIVIDE ( [Impostos para CT], [Receita Bruta] )
