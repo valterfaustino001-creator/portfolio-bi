@@ -1,0 +1,11 @@
+# Nunca versionar arquivos com dados de clientes
+*.pbix
+*.pbit
+*.xlsx
+*.csv
+*.bak
+.env
+__pycache__/
+# PBIP: cache local
+**/.pbi/localSettings.json
+**/.pbi/cache.abf
