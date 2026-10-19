@@ -9,3 +9,6 @@ __pycache__/
 # PBIP: cache local
 **/.pbi/localSettings.json
 **/.pbi/cache.abf
+
+# Exceção: dados fictícios de demonstração (podem ser versionados)
+!projetos/*/dados-demo/*
