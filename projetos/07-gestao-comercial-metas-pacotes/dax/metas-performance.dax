@@ -1,0 +1,73 @@
+// =============================================================
+// Metas diárias e performance acumulada
+// Projeto: Gestão Comercial, Metas e Pacotes
+// =============================================================
+
+// Dias úteis no contexto atual (dia, semana ou mês)
+Dias uteis =
+CALCULATE ( NETWORKDAYS ( MIN ( 'dCalendário'[Data] ), MAX ( 'dCalendário'[Data] ) ) + 0 )
+
+// Dias úteis do mês inteiro, mesmo quando o contexto é um único dia
+dias uteis do mes =
+CALCULATE ( [Dias uteis], ALL ( 'dCalendário' ), VALUES ( 'dCalendário'[MesAno] ) )
+
+// Meta do dia = meta do mês × (dias úteis do dia / dias úteis do mês).
+// Dias futuros ficam zerados.
+Meta Diaria =
+SUMX (
+    VALUES ( 'dCalendário'[Data] ),
+    CALCULATE (
+        SWITCH (
+            TRUE (),
+            SELECTEDVALUE ( 'dCalendário'[Data] ) >= TODAY (), 0,
+            DIVIDE ( [Valor Meta Func] * [Dias uteis], [dias uteis do mes] )
+        )
+    )
+)
+
+// Meta acumulada até a data, dentro do mês
+Meta diaria acum =
+CALCULATE (
+    [Meta Diaria],
+    FILTER ( ALL ( 'dCalendário' ), 'dCalendário'[Data] <= MAX ( 'dCalendário'[Data] ) ),
+    VALUES ( 'dCalendário'[MesAno] )
+)
+
+// Realizado acumulado até a data, dentro do mês
+Fat Performance acum =
+CALCULATE (
+    [Val. Total Vendido Performance],
+    FILTER ( ALL ( 'dCalendário' ), 'dCalendário'[Data] <= MAX ( 'dCalendário'[Data] ) ),
+    VALUES ( 'dCalendário'[MesAno] )
+)
+
+% Meta Parcial =
+DIVIDE ( [Meta diaria acum], [Valor Meta Func], 0 )
+
+Real vs Meta Func =
+[Val. Total Vendido] - [Valor Meta Func]
+
+
+// ---------- Pacotes ----------
+
+Val. de Pacotes Consumidos acum. =
+CALCULATE (
+    [Val. Pacotes Consumidos],
+    FILTER ( ALL ( 'dCalendário' ), 'dCalendário'[Data] <= MAX ( 'dCalendário'[Data] ) )
+)
+
+% Consumo =
+DIVIDE ( [Val. de Pacotes Consumidos acum.], [Val. de Pacotes vendidos acum.] )
+
+// YTD só até o último dia com venda: compara períodos equivalentes com o ano anterior
+Total Val. de Pacotes Vendidos YTD =
+CALCULATE (
+    [Val. Pacotes Vendidos],
+    CALCULATETABLE ( DATESYTD ( 'dCalendário'[Data] ), 'dCalendário'[Possui Vendas?] = TRUE () )
+)
+
+Total Val. de Pacotes Vendidos LYTD =
+CALCULATE (
+    [Val. Pacotes Vendidos],
+    SAMEPERIODLASTYEAR ( DATESYTD ( 'dCalendário'[Data] ) )
+)

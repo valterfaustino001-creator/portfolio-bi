@@ -1,0 +1,53 @@
+// =============================================================
+// Pareto (curva ABC), ranking e destaques visuais
+// Projeto: Gestão Comercial, Metas e Pacotes
+// =============================================================
+
+// Faturamento acumulado: soma das classes com faturamento >= ao da classe atual
+Pareto Faturamento Acumulado =
+VAR vFaturamentoContexto = [Faturamento]
+RETURN
+    CALCULATE (
+        [Faturamento],
+        FILTER ( ALLSELECTED ( dClasses ), [Faturamento] >= vFaturamentoContexto )
+    )
+
+Pareto % =
+VAR vFaturamento = CALCULATE ( [Faturamento], ALLSELECTED ( dClasses ) )
+RETURN
+    DIVIDE ( [Pareto Faturamento Acumulado], vFaturamento )
+
+// Cor da barra conforme o corte escolhido pelo usuário (tabela AuxPareto)
+Pareto Cor =
+VAR vCorte =
+    SWITCH ( SELECTEDVALUE ( AuxPareto[Id] ), 1, 0.6, 2, 0.7, 3, 0.8, 4, 0.9 )
+RETURN
+    IF ( [Pareto %] <= vCorte, "#6992a6", "#E8E8E8" )
+
+// Ranking da classe e variação contra o mês anterior
+Rank Faturado Classe =
+VAR calc1 = RANKX ( ALLSELECTED ( dClasses[Classe] ), [Faturamento], , DESC, DENSE )
+RETURN
+    IF ( ISINSCOPE ( dClasses[Classe] ), calc1, BLANK () )
+
+dif Rank Classes =
+[Rank Faturado Classe] - [Rank LM]
+
+// Melhor mês do ano com a função de janela INDEX
+Melhor Mês Faturamento =
+VAR vMes =
+    CALCULATETABLE (
+        INDEX ( 1, ALLSELECTED ( 'dCalendário'[MesAno] ), ORDERBY ( [Faturamento Geral], DESC ) ),
+        ALLEXCEPT ( 'dCalendário', 'dCalendário'[Ano] )
+    )
+RETURN
+    "Melhor Mês |  " & vMes
+
+// Eixo Y dinâmico: 40% acima do maior valor, para caber os rótulos
+Eixo Y Maximo Faturamento =
+VAR vTabela = ALLSELECTED ( 'dCalendário'[MesAno], 'dCalendário'[OrdemMes] )
+RETURN
+    MAXX ( vTabela, [Faturamento Geral] ) * 1.4
+
+Faturamento MoM % =
+DIVIDE ( [Faturamento Geral] - [Faturamento LM], [Faturamento LM], 0 )
