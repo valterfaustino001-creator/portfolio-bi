@@ -35,6 +35,10 @@ flowchart LR
 
 O cliente não tinha banco de dados: os dados saíam do sistema de gestão em planilhas anuais. Montei a ingestão em Power Query lendo cada planilha publicada e empilhando os anos com `Table.Combine`, para que um ano novo entre adicionando só uma consulta.
 
+## Dados de demonstração
+
+A pasta [`dados-demo/`](dados-demo/) traz planilhas **100% fictícias** no mesmo formato das originais (clientes, colaboradores, valores e metas inventados), geradas pelos scripts de [`scripts/`](scripts/). Com elas o relatório roda sem nenhum dado real: o passo a passo está em [`dados-demo/LEIA-ME.md`](dados-demo/LEIA-ME.md).
+
 ## Números do modelo
 
 | Item | Quantidade |
