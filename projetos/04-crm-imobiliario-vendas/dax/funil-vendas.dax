@@ -1,0 +1,65 @@
+// =============================================================
+// Funil comercial imobiliário — medidas selecionadas
+// Projeto: CRM Imobiliário (Leads → Reservas → Vendas)
+// =============================================================
+
+// ---------- Conversão acumulada do funil ----------
+// Em cada etapa do funil, conta os leads que chegaram nela OU em qualquer
+// etapa posterior. É assim que se mede "quantos passaram por aqui".
+Taxa de Conversão Acumulado =
+VAR OrdemFaseAtual =
+    MAX ( dFunil_Leads[Ordem Grupo] )          // ordem da etapa no contexto atual
+VAR FasesParaAcumular =
+    CALCULATETABLE (
+        VALUES ( dFunil_Leads[Ordem Grupo] ),
+        ALL ( dFunil_Leads ),                  // enxerga todas as etapas
+        dFunil_Leads[Ordem Grupo] >= OrdemFaseAtual
+    )
+RETURN
+    CALCULATE (
+        [Tipo Lead],                           // medida base (alternada por parâmetro)
+        ALL ( dFunil_Leads ),                  // remove o filtro da etapa atual
+        KEEPFILTERS ( FasesParaAcumular )      // aplica "esta etapa e as seguintes"
+    )
+
+
+// ---------- Vendas ----------
+
+// VGV (Valor Geral de Vendas) pela data da venda
+VGV =
+CALCULATE (
+    SUM ( fReservas[valor_contrato] ),
+    dFunil_Reservas[Grupo] IN { "venda" },
+    USERELATIONSHIP ( 'dCalendário'[Data], fReservas[data_venda] )
+)
+
+Ticket Médio Vendas =
+DIVIDE ( [VGV], [Venda] )
+
+Vendas LY card =
+CALCULATE ( [Venda], SAMEPERIODLASTYEAR ( 'dCalendário'[Data] ) )
+
+Crescimento Vendas =
+COALESCE (
+    IF ( ISBLANK ( [Venda] ), "", DIVIDE ( [Venda] - [Vendas LY card], [Vendas LY card] ) ),
+    0
+)
+
+// Cor para formatação condicional
+Crescimento Vendas Cor =
+IF ( [Crescimento Vendas] > 0, "#5fa5ed", "#ee5f88" )
+
+// Ranking de corretores que respeita os filtros da página
+// e só aparece na linha do corretor (não no total).
+Rank Corretor Qtd =
+VAR calc1 =
+    RANKX ( ALLSELECTED ( fReservas[corretor] ), [Venda], , DESC, DENSE )
+RETURN
+    IF ( ISINSCOPE ( fReservas[corretor] ), calc1, BLANK () )
+
+// Forecast: ano anterior × (1 + % do parâmetro what-if)
+Forecast =
+VAR _FatAA = [Vendas LY]
+VAR _Perc = [Valor Parâmetro]
+RETURN
+    ( _FatAA * _Perc ) + _FatAA
