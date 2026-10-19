@@ -1,0 +1,85 @@
+// =============================================================
+// DRE gerencial — medidas selecionadas
+// Projeto: Template Financeiro ERP Omie
+// Tabela de medidas: DRE
+// =============================================================
+
+// ---------- Cascata da DRE ----------
+
+Receita Bruta =
+VAR ReceitaBruta =
+    CALCULATE (
+        [TipoDRE],                                  // alterna Competência x Caixa
+        fMovFin[Conta DRE] = "Receita Bruta de Vendas"
+    )
+RETURN
+    ReceitaBruta
+
+EBITDA =
+[Receita Líquida] + [Custos Operacionais] + [Despesas Operacionais]
+
+Lucro Líquido =
+[EBITDA] + [Outras Receitas] + [Receitas Financeiras]
+    + [Despesas Financeiras] + [Outros Tributos]
+
+% Margem de Contribuição =
+DIVIDE ( [Receita Líquida] + [Custos Operacionais], [Receita Bruta], 0 )
+
+%EBITDA =
+DIVIDE ( [EBITDA], [Receita Bruta], 0 )
+
+% Lucro Líquido =
+DIVIDE ( [Lucro Líquido], [Receita Bruta], 0 )
+
+Ponto de Equilíbrio =
+ABS ( DIVIDE ( [Somatório Breakeven], [% receita Liquida], 0 ) )
+
+
+// ---------- Análise vertical (AV%) ----------
+// Participação de cada linha sobre a Receita Bruta.
+// O ALL seletivo remove os filtros de linha da DRE, categoria e cliente,
+// mas mantém período, empresa e departamento.
+
+AV% Competência RB =
+DIVIDE (
+    [TOTAL Competencia],
+    CALCULATE (
+        [TOTAL Competencia],
+        ALL ( dFormatoDRE ),
+        dFormatoDRE[Cod Formato] = 1,               // 1 = Receita Bruta
+        ALL ( fMovFin[Cod Formato] ),
+        ALL ( dCategorias ),
+        ALL ( dClientes )
+    )
+)
+
+
+// ---------- Análise horizontal (AH%) ----------
+// Variação contra o mês anterior.
+
+AH% Competencia =
+VAR MesAnterior =
+    CALCULATE ( [TOTAL Competencia], PREVIOUSMONTH ( 'dCalendário'[Data] ) )
+RETURN
+    DIVIDE ( [TOTAL Competencia], MesAnterior ) - DIVIDE ( MesAnterior, MesAnterior )
+
+
+// ---------- Comparação com o ano anterior ----------
+
+% Ebitda LY =
+CALCULATE ( [%EBITDA], SAMEPERIODLASTYEAR ( 'dCalendário'[Data] ) )
+
+// Rótulo dinâmico para cartões: "vs LY: R$ 120.000 (12%)"
+$ % Ebitda =
+VAR Texto = "vs LY: "
+VAR ValAgr = [Ebitda LY]
+VAR PercPlan = [% Ebitida Comparativo LY]
+VAR Calc =
+    FORMAT ( ValAgr, "R$ #,##0" ) & " "
+        & IF (
+            FORMAT ( PercPlan, "(#,##0.00%)" ) = "(0,00%)",
+            BLANK (),
+            FORMAT ( PercPlan, "(#,##0%)" )
+        )
+RETURN
+    Texto & Calc

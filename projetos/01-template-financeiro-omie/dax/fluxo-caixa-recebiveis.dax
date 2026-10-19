@@ -1,0 +1,37 @@
+// =============================================================
+// Fluxo de caixa, recebíveis e capital de giro — medidas selecionadas
+// Projeto: Template Financeiro ERP Omie
+// =============================================================
+
+// Prazo Médio de Recebimento ponderado pelo valor do título.
+// Títulos maiores pesam mais que títulos pequenos.
+Prazo Médio Recebimento =
+VAR PrazoxTitulos =
+    CALCULATE (
+        SUMX ( fContasaReceber, fContasaReceber[PrazoDias] * fContasaReceber[nValorTitulo] ),
+        fContasaReceber[cGrupo] = "CONTA_A_RECEBER"
+    )
+VAR Result = DIVIDE ( PrazoxTitulos, [Total Geral CR] )
+RETURN
+    ABS ( ROUND ( Result, 2 ) )
+
+// Inadimplência = vencido / (recebido + vencido)
+Inadimplência =
+DIVIDE ( [Receber Vencidos], [Recebidos] + [Receber Vencidos], 0 )
+
+// Saldo acumulado até a última data visível (running total).
+Saldo Final Projetado =
+CALCULATE (
+    [Total Recebido] + [Total Pagamento],
+    FILTER (
+        ALL ( 'dCalendário' ),
+        'dCalendário'[Data] <= MAX ( 'dCalendário'[Data] )
+    )
+)
+
+// Ticket médio
+Ticket Médio Serviços =
+DIVIDE ( [Total Fat. Serviços], [Qtd NFs Serviços] )
+
+Ticket Médio Produtos =
+DIVIDE ( [Total Fat. Produtos], [Qtd Itens Vendidos] )
