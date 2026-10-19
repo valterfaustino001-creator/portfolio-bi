@@ -1,0 +1,56 @@
+# Manifesto declarativo do pipeline ERP SCI -> PostgreSQL
+# Serve para replicar o processo fora do Pentaho (Python, Airflow, n8n...).
+source:
+  type: firebird
+  host: ${SCI_HOST}
+  port: 3050
+  database: ${SCI_DATABASE}
+  user: ${SCI_USER}
+target:
+  type: postgresql
+  host: ${PG_HOST}
+  port: 5432
+  database: ${PG_DATABASE}
+  schema: sci
+routines:
+  diaria:
+    trigger: agendador (Kitchen)
+    steps:
+      - parallel:
+          - sequence:
+              - compute_month_windows: {months: 3}          # MES_00..MES_02
+              - delete: {table: vsuc_empresas_tlan, where: "periodo >= MES_02_INICIO"}
+              - list_companies: get_empresas                 # sql/02-lista-empresas.sql
+              - for_each_company:
+                  for_each_month: [MES_00, MES_01, MES_02]
+                  query: balancete                           # sql/03-balancete-mensal.sql
+                  add_column: {periodo: MES_NN_INICIO as date}
+                  clean: {bdnomcta: "regex \\W -> ' '"}
+                  insert_into: vsuc_empresas_tlan
+          - full_reload: [tsimples, vef_emp_tmovsai, dfechamentosmensais, fafastamentos,
+                          dcolab, dcolab_cc, dcolab2, centros_tpcc, planos_tpla, dmatriz,
+                          tempresas_aux, vrh_base_tverbas, vw_bi_verbas_calculo_col,
+                          sp_rel_resumo_impostos]            # truncate + insert
+      - on_each_failure: "insert into sci.controle_carga values (current_date, now(), 'Erro na transformação <nome>')"
+      - on_success: "insert into sci.controle_carga (data_carga, ini_carga) values (current_date, now())"
+  anual:
+    steps:
+      - compute_month_windows: {months: 25}
+      - delete: {table: vsuc_empresas_tlan, where: "periodo >= MES_24_INICIO"}
+      - list_companies: get_empresas
+      - for_each_company: {for_each_month: MES_00..MES_24, query: balancete, insert_into: vsuc_empresas_tlan}
+  por_empresa:
+    params: [EMPRESA]
+    steps:
+      - compute_month_windows: {months: 25}
+      - delete: {table: vsuc_empresas_tlan, where: "bdcodemp = EMPRESA and periodo >= MES_24_INICIO"}
+      - for_each_month: {months: MES_00..MES_24, company: EMPRESA, query: balancete, insert_into: vsuc_empresas_tlan}
+  inicial:
+    trigger: manual
+    steps:
+      - sql: "truncate table sci.vsuc_empresas_tlan; insert into sci.controle_carga_inicial values (now(),'INÍCIO')"
+      - for_each_month_since: '2019-01-01'                  # sql/04-calendario-meses.sql
+        do:
+          - list_companies: get_empresas
+          - for_each_company: {query: balancete, insert_into: vsuc_empresas_tlan}
+      - sql: "insert into sci.controle_carga_inicial values (now(),'FIM')"
