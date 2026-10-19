@@ -1,0 +1,37 @@
+DESCRIÇÃO ,Índice,Tipo,Ordem
+Faturamento de Pacotes Vendidos,1,Receita,1
+Faturamento de Produtos,1,Receita,1
+Faturamento de Serviço,1,Receita,1
+Faturamento de Pacotes Consumidos,1,Receita,1
+Compra de Produtos para Revenda,2,Custos Totais,2
+Materiais de Consumo,2,Custos Totais,2
+Comissões sobre Vendas,2,Custos Totais,2
+Descartáveis e EPI,2,Custos Totais,2
+Manutenção de Equipamentos,2,Custos Totais,2
+Aluguel,3,Despesas Total,4
+Energia Elétrica,3,Despesas Total,4
+Água,3,Despesas Total,4
+Internet e Telefonia,3,Despesas Total,4
+Salários,3,Despesas Total,4
+Encargos Sociais,3,Despesas Total,4
+Vale Transporte,3,Despesas Total,4
+Marketing Digital,3,Despesas Total,4
+Material de Escritório,3,Despesas Total,4
+Contabilidade,3,Despesas Total,4
+Sistemas e Software,3,Despesas Total,4
+Limpeza e Conservação,3,Despesas Total,4
+Segurança,3,Despesas Total,4
+Seguros,3,Despesas Total,4
+Tarifas Bancárias,3,Despesas Total,4
+Treinamentos,3,Despesas Total,4
+Uniformes,3,Despesas Total,4
+Combustível,3,Despesas Total,4
+Viagens,3,Despesas Total,4
+Despesas Diversas,3,Despesas Total,4
+INSS,4,Impostos,6
+IRT CONTA DE OUTREM,4,Impostos,6
+IRT CONTA PRÓPRIA,4,Impostos,6
+IPU,4,Impostos,6
+RETENÇÃO NA FONTE,4,Impostos,6
+IMPOSTO INDUSTRIAL,4,Impostos,6
+IMPOSTO SOBRE VALOR ACRESCENTADO (IVA),4,Impostos,6
