@@ -1,0 +1,577 @@
+{
+  "name": "01 - Disparo WhatsApp - REFERENCIA configurar antes de ativar",
+  "nodes": [
+    {
+      "id": "node-1",
+      "name": "Iniciar manualmente",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "node-2",
+      "name": "Configuracao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:{\"graph_version\":\"PREENCHER_VERSAO_SUPORTADA\",\"phone_number_id\":\"PREENCHER_PHONE_NUMBER_ID\",\"template\":\"atendimento_cliente_v1\",\"language\":\"pt_BR\",\"campaign_id\":\"atendimento_2026_01\",\"pagamento\":\"PREENCHER: Pix, cartão e boleto; parcelas, juros, parcela mínima e prazos reais.\",\"tracking_url\":\"https://SEU-ADAPTADOR.example/rastreamento\",\"shipping_url\":\"https://SEU-ADAPTADOR.example/frete\",\"vendedor_email\":\"PREENCHER@empresa.example\"}};"
+      }
+    },
+    {
+      "id": "node-3",
+      "name": "Ler contatos",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "PREENCHER_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contatos",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-4",
+      "name": "Filtrar elegiveis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst truth=v=>v===true||['sim','true','1'].includes(String(v).toLowerCase());\nconst seen=new Set();\nreturn $input.all().filter(i=>{\n const c=i.json; const p=String(c.telefone||'').trim().replace(/^\\+/,'');\n const eligible=/^[1-9]\\d{7,14}$/.test(p)&&!seen.has(p)&&!truth(c.opt_out)&&truth(c.opt_in)\n &&!truth(c.bot_paused)&&!['enviado','respondeu','transferido','erro'].includes(String(c.status_envio||'').trim().toLowerCase());\n seen.add(p);c.telefone=p;return eligible;\n});"
+      }
+    },
+    {
+      "id": "node-5",
+      "name": "Um contato por vez",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "node-6",
+      "name": "Reservar campanha",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1300,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH claim AS (\nINSERT INTO wa_campaigns(campaign_id,phone)\nSELECT $1,$2 WHERE NOT EXISTS (\n SELECT 1 FROM wa_sessions WHERE phone=$2 AND\n (data->>'opt_out'='true' OR data->>'bot_paused'='true')\n)\nON CONFLICT DO NOTHING RETURNING phone)\nSELECT EXISTS(SELECT 1 FROM claim) AS claimed;",
+        "options": {
+          "queryReplacement": "={{ [ $('Configuracao').first().json.campaign_id, $json.telefone ] }}"
+        }
+      }
+    },
+    {
+      "id": "node-7",
+      "name": "Reserva obtida",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.claimed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-8",
+      "name": "Reler antes do envio",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        260,
+        220
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "PREENCHER_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contatos",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "telefone",
+              "lookupValue": "={{ $('Um contato por vez').item.json.telefone }}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-9",
+      "name": "Ainda permitido",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ !!$json.telefone && ['sim','true','1'].includes(String($json.opt_in).toLowerCase()) && !['sim','true','1'].includes(String($json.opt_out).toLowerCase()) && !['sim','true','1'].includes(String($json.bot_paused).toLowerCase()) && !['enviado','respondeu','transferido','erro'].includes(String($json.status_envio||'').toLowerCase()) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-10",
+      "name": "Conferir bloqueio persistente",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        780,
+        220
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT NOT EXISTS(SELECT 1 FROM wa_sessions WHERE phone=$1 AND (data->>'opt_out'='true' OR data->>'bot_paused'='true')) AS allowed;",
+        "options": {
+          "queryReplacement": "={{ [ $('Um contato por vez').item.json.telefone ] }}"
+        }
+      }
+    },
+    {
+      "id": "node-11",
+      "name": "Banco permite",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.allowed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-12",
+      "name": "Enviar template",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/'+$('Configuracao').first().json.graph_version+'/'+$('Configuracao').first().json.phone_number_id+'/messages' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {messaging_product:'whatsapp',to:$('Um contato por vez').item.json.telefone,type:'template',template:{name:$('Configuracao').first().json.template,language:{code:$('Configuracao').first().json.language},components:[{type:'body',parameters:[{type:'text',text:$('Um contato por vez').item.json.nome||'cliente'}]}]}} }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-13",
+      "name": "Resultado do disparo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        440
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst r=$json;const id=r.body?.messages?.[0]?.id;\nreturn {json:{telefone:$('Um contato por vez').item.json.telefone,status_envio:id?'enviado':'erro',\ndata_ultimo_contato:new Date().toISOString(),wamid:id||'',erro_envio:id?'':JSON.stringify(r.body?.error||r.error||r).slice(0,1000)}};"
+      }
+    },
+    {
+      "id": "node-14",
+      "name": "Registrar tentativa",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        260,
+        440
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE wa_campaigns SET state=$3,wamid=NULLIF($4,''),error=NULLIF($5,''),updated_at=now()\nWHERE campaign_id=$1 AND phone=$2 RETURNING phone;",
+        "options": {
+          "queryReplacement": "={{ [ $('Configuracao').first().json.campaign_id,$json.telefone,$json.status_envio,$json.wamid,$json.erro_envio ] }}"
+        }
+      }
+    },
+    {
+      "id": "node-15",
+      "name": "Atualizar envio",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        520,
+        440
+      ],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "PREENCHER_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contatos",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "telefone": "={{ $('Resultado do disparo').item.json.telefone }}",
+            "status_envio": "={{ $('Resultado do disparo').item.json.status_envio }}",
+            "data_ultimo_contato": "={{ $('Resultado do disparo').item.json.data_ultimo_contato }}",
+            "erro_envio": "={{ $('Resultado do disparo').item.json.erro_envio }}",
+            "wamid": "={{ $('Resultado do disparo').item.json.wamid }}"
+          },
+          "matchingColumns": [
+            "telefone"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-16",
+      "name": "Esperar 3 a 5 segundos",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        440
+      ],
+      "parameters": {
+        "amount": "={{ 3 + Math.floor(Math.random()*3) }}",
+        "unit": "seconds"
+      },
+      "webhookId": "cadencia-whatsapp"
+    }
+  ],
+  "connections": {
+    "Iniciar manualmente": {
+      "main": [
+        [
+          {
+            "node": "Configuracao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuracao": {
+      "main": [
+        [
+          {
+            "node": "Ler contatos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler contatos": {
+      "main": [
+        [
+          {
+            "node": "Filtrar elegiveis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar elegiveis": {
+      "main": [
+        [
+          {
+            "node": "Um contato por vez",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Um contato por vez": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Reservar campanha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reservar campanha": {
+      "main": [
+        [
+          {
+            "node": "Reserva obtida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reserva obtida": {
+      "main": [
+        [
+          {
+            "node": "Reler antes do envio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Esperar 3 a 5 segundos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reler antes do envio": {
+      "main": [
+        [
+          {
+            "node": "Ainda permitido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ainda permitido": {
+      "main": [
+        [
+          {
+            "node": "Conferir bloqueio persistente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Esperar 3 a 5 segundos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conferir bloqueio persistente": {
+      "main": [
+        [
+          {
+            "node": "Banco permite",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Banco permite": {
+      "main": [
+        [
+          {
+            "node": "Enviar template",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Esperar 3 a 5 segundos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar template": {
+      "main": [
+        [
+          {
+            "node": "Resultado do disparo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resultado do disparo": {
+      "main": [
+        [
+          {
+            "node": "Registrar tentativa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar tentativa": {
+      "main": [
+        [
+          {
+            "node": "Atualizar envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar envio": {
+      "main": [
+        [
+          {
+            "node": "Esperar 3 a 5 segundos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Esperar 3 a 5 segundos": {
+      "main": [
+        [
+          {
+            "node": "Um contato por vez",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "pinData": {}
+}

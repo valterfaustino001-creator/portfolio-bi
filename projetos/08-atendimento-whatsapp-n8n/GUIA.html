@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="pt-BR"><meta charset="utf-8">
+<title>Atendimento WhatsApp com n8n — projeto e implantação</title>
+<style>
+body{font:16px/1.6 system-ui,sans-serif;color:#183044;background:#f5f8fa;margin:0}
+main{max-width:1120px;margin:auto;background:white;padding:48px}
+h1,h2,h3{line-height:1.25;color:#075c58}h1{font-size:36px}
+h2{border-top:1px solid #cbdde1;padding-top:28px;margin-top:40px}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:20px 0}
+th,td{border:1px solid #cbdde1;padding:10px;text-align:left;vertical-align:top}th{background:#edf5f4}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eef3f6;padding:18px;font-size:13px}
+code{font-family:Consolas,monospace}a{color:#006e82}.note{border-left:5px solid #d29b23;background:#fff8e6;padding:18px}
+li{margin:8px 0}.small{font-size:14px;color:#526879}
+@media print{body{background:white}main{padding:0}table,pre{break-inside:avoid}a{color:inherit}}
+</style>
+<main>
+<p class="small">Projeto de referência • 20/10/2026 • Cloud API oficial da Meta</p>
+<h1>Atendimento automatizado no WhatsApp com n8n</h1>
+<p>O projeto usa Google Sheets como cadastro e painel operacional, PostgreSQL como memória persistente e WhatsApp Cloud API para mensagens. O atendimento é uma máquina de estados: entende opções e palavras-chave, consulta serviços externos e encaminha ao vendedor quando necessário. Não depende de um LLM.</p>
+<div class="note"><strong>O que está entregue:</strong> arquitetura, parâmetros, expressões, três workflows JSON, esquema SQL, regras da conversa, template e checklist. Os JSONs são <strong>bases de referência desativadas</strong>, com credenciais e serviços para configurar. Sua estrutura e a lógica local foram verificadas; não foram importados em uma instância n8n nem executados contra Meta, Google, SMTP ou PostgreSQL. A seção 9 detalha os componentes adicionais de confiabilidade necessários antes de produção concorrente. Não trate os arquivos como uma implantação pronta.</div>
+
+<h2>1. Decisões do projeto</h2>
+<ul>
+<li><strong>Quatro opções = lista interativa.</strong> Os botões de resposta suportam até três opções. O texto numerado é o fallback. A referência do SDK oficial da Meta está arquivada; usamos apenas o formato HTTP, sem dependência desse SDK.</li>
+<li><strong>30 minutos</strong> são o tempo de inatividade da sessão do bot. A janela da Meta para respostas livres é de <strong>24 horas desde a última mensagem do cliente</strong>. Enviar o template não abre, sozinho, essa janela.</li>
+<li><strong>Opt-in antes do disparo.</strong> Ter um telefone na planilha não é consentimento. Os intervalos de 3–5 segundos controlam cadência, mas não garantem evitar bloqueios, nem substituem os limites da conta e a qualidade da comunicação.</li>
+<li><strong>Opt-out e transferência não expiram.</strong> São atributos persistentes separados do estado temporário. “Sair” e “parar” têm prioridade mesmo quando o bot está pausado.</li>
+<li><strong>Enviado ≠ entregue.</strong> “enviado” significa que a API aceitou a mensagem e retornou <code>wamid</code>. Webhooks registram entrega, leitura e falhas posteriores.</li>
+<li>O disparo ignora também “respondeu”, “transferido” e “erro”, além de “enviado”. Reprocessar erro exige revisão explícita para evitar duplicar mensagens cujo resultado ficou incerto.</li>
+</ul>
+<p>Fontes: <a href="https://whatsappbusiness.com/policy/">política oficial do WhatsApp</a> e <a href="https://whatsapp.github.io/WhatsApp-Nodejs-SDK/api-reference/messages/interactive/">formato interativo da Meta</a>.</p>
+
+<h2>2. Preparação da planilha e das credenciais</h2>
+<p>Crie uma aba <code>Contatos</code>, cabeçalho na linha 1. Uma linha por telefone. Formate telefone, CEP, pedido e IDs como <strong>texto simples</strong>, antes de colar os dados. O formato canônico usado na chave é internacional com DDI e somente dígitos: <code>5511999999999</code>. E.164 costuma ser exibido com “+”; no cadastro deste projeto mantenha os dígitos, como no exemplo solicitado.</p>
+<table>
+<tr><th>Coluna</th><th>Conteúdo e uso</th></tr>
+<tr><td>nome</td><td>Nome para personalização. Não colocar dados sensíveis.</td></tr>
+<tr><td>telefone</td><td>Chave única. Validação estrutural <code>^[1-9]\d{7,14}$</code>. Isso não prova que o número existe ou tem WhatsApp; para validação por país use libphonenumber em um serviço de normalização.</td></tr>
+<tr><td>codigo_pedido</td><td>Código interno do pedido. Pode estar vazio. Não assumir que é o código de rastreio da transportadora.</td></tr>
+<tr><td>status_envio</td><td>Inicialmente vazio; depois enviado, respondeu, erro ou transferido.</td></tr>
+<tr><td>data_ultimo_contato</td><td>ISO 8601 UTC, atualizado em mensagens recebidas e aceitas para envio. Webhook de entrega não é uma nova interação.</td></tr>
+<tr><td>opt_in, data_opt_in, origem_opt_in</td><td>Adicionar. “sim” em opt_in somente com consentimento registrado. As duas outras colunas documentam a evidência.</td></tr>
+<tr><td>opt_out</td><td>Adicionar. Booleano ou “sim/não”. Prevalece sobre opt_in e nunca é removido pela expiração.</td></tr>
+<tr><td>bot_paused</td><td>Adicionar. Booleano ou “sim/não”. Transferência humana deixa verdadeiro até liberação explícita do vendedor.</td></tr>
+<tr><td>erro_envio, wamid</td><td>Adicionar. Erro resumido e ID da última mensagem. Histórico completo fica no banco.</td></tr>
+</table>
+<p>Faça uma auditoria inicial de duplicatas antes de ativar. Não use número da linha como identidade: ordenar a planilha mudaria o contato. Em operações de atualização, selecione <code>telefone</code> em “Column to match on”. O JSON usa nomes de coluna, mas o schema pode precisar ser recarregado na interface depois de escolher a planilha.</p>
+<table>
+<tr><th>Credencial n8n</th><th>Configuração</th><th>Onde associar</th></tr>
+<tr><td>Google Sheets OAuth2</td><td>Autorizar uma conta com acesso de edição à planilha. Habilitar APIs Google Sheets e, se necessário para descoberta de arquivos, Google Drive no projeto OAuth. Usar a callback exibida pelo n8n.</td><td>Todos os nós Google Sheets. O conteúdo é lido pela API Sheets, embora o arquivo esteja no Drive.</td></tr>
+<tr><td>WhatsApp OAuth2</td><td>Credencial do WhatsApp Trigger: Client ID = App ID e Client Secret = App Secret conforme a interface do n8n.</td><td>WhatsApp Trigger.</td></tr>
+<tr><td>HTTP Header Auth — Meta</td><td>Name: <code>Authorization</code>. Value: <code>Bearer TOKEN</code>. Token de usuário de sistema com acesso ao WABA/número e permissão de envio aplicável, incluindo <code>whatsapp_business_messaging</code>. Permissões de gerenciamento podem ser necessárias na configuração do app.</td><td>Enviar template, Enviar resposta e Enviar texto alternativo. Não inserir tokens em Code, planilha ou JSON exportado.</td></tr>
+<tr><td>Postgres</td><td>Host, database, usuário, senha e SSL do banco de aplicação. Executar <code>schema.sql</code> antes. Privilégio mínimo para as tabelas e funções do projeto.</td><td>Todos os nós Postgres.</td></tr>
+<tr><td>HTTP Header Auth — logística</td><td>Autorização do adaptador de rastreamento/frete. Se o fornecedor exige OAuth2, substituir o tipo de autenticação e vincular a credencial correta.</td><td>Consultar rastreamento e Consultar frete. Não reutilizar token da Meta nesses nós.</td></tr>
+<tr><td>SMTP</td><td>Servidor, porta, TLS, usuário e senha do e-mail da empresa.</td><td>Email para vendedor. Alternativa manual: Slack com canal interno fixo.</td></tr>
+</table>
+<p>Confirme Phone Number ID, WABA ID e App ID: são identificadores diferentes. No nó <code>Configuracao</code> dos dois workflows, substitua <code>graph_version</code> por uma versão suportada pelo seu app, <code>phone_number_id</code>, nome e idioma exatos do template, URLs logísticas e e-mail do vendedor. Os valores não secretos foram duplicados entre os dois JSONs para permitir importação independente; mantenha-os iguais.</p>
+<p>Use n8n publicado por HTTPS. O WhatsApp Trigger recebe eventos “Messages”, incluindo mensagens e status. Valide assinatura do webhook na versão instalada: um POST sem assinatura válida não deve processar dados. Se usar Webhook genérico, implemente GET de verificação (<code>hub.verify_token</code> / <code>hub.challenge</code>) e validação HMAC-SHA256 de <code>X-Hub-Signature-256</code> sobre os bytes originais do corpo, com App Secret. Não basta conferir um token em query string nos POSTs.</p>
+<p>Use app/número separado para homologação. A Meta permite um webhook por app; alternar teste e produção pode substituir o endereço registrado. Consulte as <a href="https://docs.n8n.io/integrations/builtin/credentials/whatsapp/">credenciais n8n</a> e o <a href="https://docs.n8n.io/integrations/builtin/trigger-nodes/n8n-nodes-base.whatsapptrigger/">WhatsApp Trigger</a>.</p>
+
+<h2>3. Arquitetura e conexões</h2>
+<pre>01 — DISPARO
+Manual Trigger → Configuração → Sheets: ler contatos → Code: filtrar
+ → Loop Over Items (1 por vez, saída loop)
+ → Postgres: reservar campanha → IF reserva obtida
+ → Sheets: reler contato → IF ainda permitido
+ → Postgres: conferir supressão → IF banco permite
+ → HTTP: template → Code: resultado → Postgres: registrar tentativa
+ → Sheets: atualizar envio → Wait 3–5 s → volta ao Loop
+IFs falsos → Wait → próximo contato. Saída done encerra.
+
+02 — ENTRADA
+WhatsApp Trigger → Code: normalizar lote → Configuração → IF número correto
+ → IF evento de entrega
+   SIM: Postgres: registrar status → IF failed → Sheets: buscar
+        → IF wamid atual → Sheets: registrar falha
+   NÃO: Postgres: deduplicar wamid → IF evento novo → Sheets: buscar contato
+        → Postgres: carregar sessão → Code: decidir atendimento → Switch
+           tracking → HTTP logística → Code: formatar rastreamento ┐
+           shipping → HTTP frete → Code: formatar frete            │
+           handoff / none / menu / text                            │
+        ←──────────────────────────────────────────────────────────┘
+        Postgres: persistir → Sheets: espelhar → IF notificar vendedor
+        → SMTP quando necessário → IF responder permitido
+        → Code: payload → HTTP: resposta → IF erro de formato interativo
+        → HTTP: texto alternativo quando aplicável
+        → Code: avaliar → Sheets: resultado → Postgres: concluir evento
+
+03 — EXPIRAÇÃO
+Schedule Trigger (1 minuto) → Postgres: encerrar somente contexto expirado
+
+CAMADA DE PRODUÇÃO (seção 9)
+Inbox durável → worker com lock por telefone → transação de estado + outbox
+ → workers de envio, Sheets e notificação → reconciliador / fila de revisão.</pre>
+<p>Uma resposta do cliente gera uma nova execução; não mantenha um nó Wait aguardando a próxima mensagem. O estado é recuperado por telefone. A opção “none” encerra sem mensagem do bot, mas persiste a interação e o bloqueio. Contatos desconhecidos podem iniciar atendimento e são incluídos na planilha sem consentimento de campanha; responder a uma conversa não equivale a cadastrar opt-in para novos disparos.</p>
+
+<h2>4. Configuração de cada nó do disparo</h2>
+<table>
+<tr><th>Nó</th><th>Parâmetros e regra</th></tr>
+<tr><td>Iniciar manualmente</td><td>Manual Trigger para homologar. Depois substituir por Schedule Trigger no horário comercial autorizado. Não executar duas campanhas simultâneas sem a camada de lock global de cadência.</td></tr>
+<tr><td>Configuracao</td><td>Code com objeto de configuração. <code>campaign_id</code> identifica uma campanha lógica; mudar a cada execução permitiria repetição. Não altere para contornar uma tentativa incerta.</td></tr>
+<tr><td>Ler contatos</td><td>Google Sheets → Get Row(s), Document by ID, Sheet by Name = Contatos. Sem filtros: Code aplica a elegibilidade.</td></tr>
+<tr><td>Filtrar elegiveis</td><td>Code, Run Once for All Items. Remove inválidos, duplicatas, opt-out, pausa, ausência de opt-in e status enviados/respondidos/transferidos/erro. Rejeita silenciosamente número inválido, conforme regra solicitada.</td></tr>
+<tr><td>Um contato por vez</td><td>Loop Over Items, Batch Size = 1. Saída loop → reservar; done → fim. Wait retorna à entrada deste nó.</td></tr>
+<tr><td>Reservar campanha</td><td>Postgres Execute Query, INSERT ON CONFLICT DO NOTHING na chave (campaign_id, phone), com supressão persistente. Retorna booleano claimed.</td></tr>
+<tr><td>Reserva obtida</td><td>IF <code>{{ $json.claimed }}</code> é true. False → Wait.</td></tr>
+<tr><td>Reler antes do envio</td><td>Get Row(s), filtro telefone = <code>{{ $('Um contato por vez').item.json.telefone }}</code>. Revalida mudanças feitas depois da leitura inicial.</td></tr>
+<tr><td>Ainda permitido</td><td>IF telefone encontrado, opt_in verdadeiro, opt_out e bot_paused falsos e status ainda elegível. False → Wait.</td></tr>
+<tr><td>Conferir bloqueio persistente / Banco permite</td><td>Postgres consulta wa_sessions pelo telefone; IF allowed. Em produção, executar essa checagem e o despacho sob o mesmo lock por telefone utilizado pelo recebimento.</td></tr>
+<tr><td>Enviar template</td><td>HTTP POST Graph API /{phone_number_id}/messages; Header Auth Meta; JSON; timeout 15 s; incluir status/body; Never Error para códigos HTTP; On Error Continue regular para falha de transporte. Não habilitar retry automático de POST.</td></tr>
+<tr><td>Resultado do disparo</td><td>Code: body.messages[0].id presente → enviado; ausente → erro. Preserva telefone, data, wamid e erro. Timeout é resultado incerto, não prova de que não enviou.</td></tr>
+<tr><td>Registrar tentativa</td><td>Postgres UPDATE wa_campaigns por campanha + telefone. Guarda aceite ou erro antes de depender da planilha.</td></tr>
+<tr><td>Atualizar envio</td><td>Sheets Update Row, match telefone; mapear status_envio, data_ultimo_contato, erro_envio e wamid a partir de Resultado do disparo.</td></tr>
+<tr><td>Esperar 3 a 5 segundos</td><td>Wait, Seconds, <code>{{ 3 + Math.floor(Math.random()*3) }}</code>. Um Wait não é um limitador global para várias execuções.</td></tr>
+</table>
+<p>URL usada em HTTP:</p>
+<pre>{{ 'https://graph.facebook.com/' +
+   $('Configuracao').first().json.graph_version + '/' +
+   $('Configuracao').first().json.phone_number_id + '/messages' }}</pre>
+<p>Corpo do template, com um parâmetro no body:</p>
+<pre>{
+  "messaging_product": "whatsapp",
+  "to": "5511999999999",
+  "type": "template",
+  "template": {
+    "name": "atendimento_cliente_v1",
+    "language": {"code": "pt_BR"},
+    "components": [{
+      "type": "body",
+      "parameters": [{"type": "text", "text": "Ana"}]
+    }]
+  }
+}</pre>
+
+<h2>5. Configuração de cada nó do atendimento</h2>
+<table>
+<tr><th>Nó(s)</th><th>Configuração</th></tr>
+<tr><td>WhatsApp Trigger</td><td>Events/Updates = Messages. Credencial WhatsApp OAuth2. Somente uma instância de entrada por app.</td></tr>
+<tr><td>Normalizar evento</td><td>Code, All Items. Percorre entry[].changes[].value.messages[] e statuses[], ou value já extraído pelo trigger. Texto: list_reply.id → button_reply.id → button.payload → text.body. Usa cada wamid individual, não apenas o primeiro item do webhook. Áudio/imagem não são transcritos: resultam em menu.</td></tr>
+<tr><td>Configuracao / Numero correto</td><td>Anexa configuração a cada evento; compara metadata.phone_number_id ao número configurado. Eventos de outro número param.</td></tr>
+<tr><td>Evento de entrega / Registrar entrega</td><td>IF kind=status. INSERT idempotente em wa_delivery usando (wamid,status,event_at). Não enviar menu para recibo de entrega.</td></tr>
+<tr><td>Entrega falhou / Contato da falha / Falha da mensagem atual</td><td>Somente failed consulta a planilha. Atualização somente se o wamid ainda corresponder à última mensagem; eventos antigos não devem rebaixar o status atual.</td></tr>
+<tr><td>Registrar falha assincrona</td><td>Sheets Update por telefone; erro_envio com errors[]. Mantém transferido/respondeu se já avançou; demais viram erro. Não altera data_ultimo_contato por recibo técnico.</td></tr>
+<tr><td>Deduplicar entrada / Evento novo</td><td>Postgres INSERT wa_events ON CONFLICT DO NOTHING; IF fresh. Na referência, duplicatas param. Em produção o worker deve recuperar eventos pending/failed independentemente de nova entrega da Meta.</td></tr>
+<tr><td>Buscar contato</td><td>Sheets Get Row(s), telefone exato; primeiro resultado; Always Output Data para contato inexistente. Exigir unicidade no cadastro.</td></tr>
+<tr><td>Carregar sessao</td><td>SELECT COALESCE(data,'{}') em wa_sessions. Passa o contato em parâmetro JSONB para preservar nome/pedido; não usar memória global estática do workflow.</td></tr>
+<tr><td>Decidir atendimento</td><td>Code, Each Item, função do arquivo router.cjs. Ordem: opt-out → bloqueios → janela de 24h → humano → primeira interação/menu → intenção/estado → fallback menu.</td></tr>
+<tr><td>Rotear acao</td><td>Switch Expression: tracking=0, shipping=1, handoff=2, none=3, demais=4. A primeira resposta sempre apresenta menu, exceto opt-out e solicitação humana explícita.</td></tr>
+<tr><td>Consultar rastreamento / frete</td><td>HTTP POST, JSON e Header Auth próprios; timeout 15 s; full response e Never Error. Contratos na seção 6. Não há URL real universal de Correios ou frete incluída.</td></tr>
+<tr><td>Formatar rastreamento / frete</td><td>Code transforma resposta válida em texto; falha produz mensagem honesta, sem inventar prazo ou preço, e oferece vendedor. Adiciona “Posso ajudar em algo mais?”.</td></tr>
+<tr><td>Persistir contexto</td><td>Postgres UPSERT por telefone, grava state, expires_at, last_inbound_at, opt_out, bot_paused e menu_shown. Grava bloqueio antes de enviar notificação. Na referência não há lock distribuído: aplicar seção 9.</td></tr>
+<tr><td>Preparar registro / Espelhar contato / Restaurar contexto</td><td>Extrai data do Postgres; Sheets Append or Update por telefone; mapeia nome/pedido/status/data/opt_out/bot_paused, sem sobrescrever opt_in. Restaura payload após a saída do Sheets.</td></tr>
+<tr><td>Notificar vendedor / Email para vendedor</td><td>IF notify=true → SMTP para endereço fixo configurado. Mensagem inclui nome, telefone e pedido; nenhuma notificação real foi enviada durante a elaboração. Em produção deve ser uma outbox independente, para uma falha SMTP não bloquear a confirmação ao cliente.</td></tr>
+<tr><td>Contexto para envio / Responder permitido</td><td>Restaura payload; IF action != none. Quando false, conclui evento sem enviar.</td></tr>
+<tr><td>Montar mensagem</td><td>Code: action=menu gera interactive/list com IDs “1”, “2”, “3”, “4”; demais geram text. Textos longos são limitados antes do POST.</td></tr>
+<tr><td>Enviar resposta</td><td>HTTP Meta, mesma autenticação do disparo; JSON = <code>{{ $json.payload }}</code>. Revalidar janela/bloqueios imediatamente antes do despacho no worker de produção.</td></tr>
+<tr><td>Fallback de formato / Enviar texto alternativo</td><td>Somente mensagem interactive rejeitada por HTTP 400 e código de parâmetro/formato 100 ou 131009 entra no fallback. Conferir error_data/details em homologação e restringir essa lista se necessário. Nunca fallback automático após timeout, 429, autenticação inválida ou indisponibilidade.</td></tr>
+<tr><td>Avaliar envio / Registrar resultado</td><td>Captura wamid ou erro, atualiza Sheets por telefone. Transferência mantém status transferido mesmo se a confirmação falhar; erro_envio registra a falha.</td></tr>
+<tr><td>Concluir evento</td><td>Marca processamento local done. Isso não significa entrega ao cliente. Em produção, concluir a transação ao criar os efeitos na outbox; os efeitos têm status independente.</td></tr>
+</table>
+<p>Parâmetros SQL devem ser valores vinculados, nunca concatenação do texto do cliente. Exemplo de query e “Query Parameters” no Postgres:</p>
+<pre>SELECT COALESCE(
+  (SELECT data FROM wa_sessions WHERE phone=$1),
+  '{}'::jsonb
+) AS session, $2::jsonb AS contact;
+
+{{ [ $('Configuracao').item.json.phone, JSON.stringify($json) ] }}</pre>
+<p>O arquivo JSON já contém as consultas e expressões de cada nó. O prefixo <code>=</code> no JSON identifica expressão n8n; na interface use o modo Expression. A documentação de <a href="https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.postgres/">Postgres</a>, <a href="https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.googlesheets/sheet-operations/">Sheets</a> e <a href="https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.httprequest/">HTTP Request</a> detalha as opções.</p>
+
+<h2>6. Rastreamento, frete e pagamento</h2>
+<h3>Rastreamento</h3>
+<p>Use codigo_pedido da planilha; se vazio, peça o código. Seu backend deve localizar esse pedido, validar que pertence ao telefone do cliente, obter transportadora e código de rastreio e consultar a API contratada. Não exponha dados de um pedido apenas porque alguém soube digitar seu número.</p>
+<pre>POST https://SEU-ADAPTADOR/rastreamento
+Authorization: Bearer TOKEN_LOGISTICA
+{"telefone":"5511999999999","codigo_pedido":"PED123"}
+
+200
+{
+  "autorizado": true,
+  "status": "Em transporte",
+  "previsao_entrega": "23/10/2026"
+}</pre>
+<p>Esses dados são exemplos de contrato, não uma resposta real. Se a API não fornecer previsão, retorne null. Para pedido inexistente ou não autorizado, use uma resposta neutra sem indicar a quem pertence. O código interno não é automaticamente um objeto dos Correios. Contratação, autenticação e endpoints do fornecedor precisam ser definidos antes de completar esses nós; pode-se implementar o adaptador como subworkflow com HTTP Request + Code.</p>
+<h3>Frete</h3>
+<p>Peça CEP, aceite <code>01001000</code> ou <code>01001-000</code> e normalize para oito dígitos. A validação de formato não confirma existência ou cobertura; isso é responsabilidade da API. A cotação precisa de CEP de origem, peso, dimensões, quantidade e valor declarado quando aplicável. Não calcule um frete “real” apenas com o CEP de destino.</p>
+<pre>POST https://SEU-ADAPTADOR/frete
+{"telefone":"5511999999999","codigo_pedido":"PED123","cep_destino":"01001000"}
+
+200
+{"opcoes":[
+  {"servico":"Econômico","valor":19.90,"prazo_dias_uteis":5},
+  {"servico":"Expresso","valor":32.50,"prazo_dias_uteis":2}
+]}</pre>
+<p>O adaptador resolve origem e pacote pelo pedido/carrinho. Para pedido vazio, use somente um pacote padrão aprovado para o catálogo; caso contrário, retorne erro “dados do produto necessários” e direcione ao vendedor ou acrescente estado AGUARDA_PRODUTO. O JSON retorna mensagem de indisponibilidade e oferece vendedor. Valores devem ser números em reais, não centavos nem strings. Prazo deve especificar dias úteis e eventual tempo de preparação. Não substituir falta de cobertura por frete grátis.</p>
+<h3>Pagamento</h3>
+<p>Edite apenas <code>Configuracao.pagamento</code> no atendimento. Preencha, por exemplo, com dados reais da loja:</p>
+<pre>Aceitamos Pix, cartão e boleto.
+Pix: [prazo de confirmação e eventual desconto].
+Cartão: até [N] parcelas, [com/sem juros], parcela mínima de [valor].
+Boleto: vencimento em [prazo]; liberação após [prazo de compensação].
+A preparação do pedido começa após [regra da empresa].</pre>
+<p>O projeto não inventa parcelas, juros ou prazos. Não solicite número completo de cartão pelo WhatsApp. Para cobrar, envie link de checkout seguro em integração futura.</p>
+
+<h2>7. Sessão, vendedor e opt-out</h2>
+<table>
+<tr><th>Estado</th><th>Próximo comportamento</th></tr>
+<tr><td>MENU</td><td>“1”/rastreio → rastreamento; “2”/Pix → pagamento; “3”/frete → pede CEP; “4”/atendente → humano. Sem intenção reconhecida → menu.</td></tr>
+<tr><td>AGUARDA_PEDIDO</td><td>Valida código de 1–64 caracteres de letras/números/_./-. Consulta apenas via backend autorizado.</td></tr>
+<tr><td>AGUARDA_CEP</td><td>CEP válido → consulta frete; inválido → solicita novamente. “4”, “menu” e opt-out continuam disponíveis.</td></tr>
+<tr><td>MAIS</td><td>“sim” → menu; “não” → agradece e encerra. Uma nova opção pode ser escolhida diretamente.</td></tr>
+<tr><td>ENCERRADO</td><td>Nova mensagem reinicia menu, exceto opt-out ou pausa humana.</td></tr>
+<tr><td>HUMANO / bot_paused</td><td>Nenhum menu, campanha ou resposta automática. Opt-out continua sendo registrado. A confirmação única da transferência é um efeito da transição, não uma reativação do bot.</td></tr>
+</table>
+<p>O workflow 03 roda a cada minuto. A sessão fica logicamente expirada aos 30 minutos exatos: o roteador também compara expires_at, mesmo que a limpeza periódica ainda não tenha executado. Não envia uma mensagem de encerramento por inatividade; somente apaga o contexto temporário. O prazo é contado desde a última mensagem recebida, não desde recibos de entrega ou do bot.</p>
+<p>A transferência pausa primeiro, registra “transferido” e notifica depois. O vendedor precisa de uma caixa de atendimento conectada ao mesmo número da Cloud API; um e-mail não cria essa interface. Ele deve assumir por essa caixa, mantendo as mesmas regras de janela da Meta. Configure fila, responsável e SLA de retorno na operação.</p>
+<p>Para devolver ao bot, disponibilize uma ação administrativa autenticada, sob lock por telefone: verificar opt_out=false, atualizar bot_paused=false, state=ENCERRADO, menu_shown=false, expires_at=null, espelhar planilha e aguardar nova mensagem do cliente. Não retomar automaticamente após 30 minutos. Não use uma palavra digitada pelo cliente para cancelar a pausa humana.</p>
+<p>Opt-out grava <code>opt_out=true</code> no banco antes de qualquer envio. Uma única confirmação do descadastro é permitida pelo desenho; depois, nenhuma mensagem automática, nem se o cliente digitar “sim”. Todo disparo consulta a supressão novamente. Uma solicitação de opt-out feita fora do WhatsApp deve passar pela mesma ação administrativa no banco, e não apenas por edição eventual da planilha.</p>
+
+<h2>8. Template para aprovação da Meta</h2>
+<p><strong>Nome:</strong> atendimento_cliente_v1<br><strong>Idioma:</strong> pt_BR<br><strong>Categoria proposta:</strong> Marketing, por se tratar de convite genérico para atendimento. A classificação final e aprovação são da Meta. Não classifique esse convite genérico como Utility apenas para reduzir custos.</p>
+<blockquote>Olá, {{1}}! Aqui é a equipe da [NOME DA EMPRESA]. Podemos ajudar com rastreamento, formas de pagamento, frete ou atendimento com um vendedor. Responda a esta mensagem para começar. Se não quiser receber nossas mensagens, responda SAIR.</blockquote>
+<p>Substitua [NOME DA EMPRESA] por texto fixo antes de submeter. Exemplo da variável {{1}}: Ana. Corpo sem cabeçalho ou botões, para corresponder exatamente ao payload do JSON. O menu só aparece após a resposta.</p>
+<p>Se a finalidade real for atualizar um pedido específico, crie outro template, por exemplo <code>atualizacao_pedido_v1</code>, com conteúdo estritamente transacional: “Olá, {{1}}. Há uma atualização sobre o seu pedido {{2}} na [EMPRESA]. Responda para consultar o andamento ou falar com nossa equipe.” Submeta a categoria pertinente e aguarde aprovação. Nesse caso, adicione o segundo parâmetro ao HTTP; não use esse texto com o JSON de um único parâmetro sem modificá-lo.</p>
+
+<h2>9. Confiabilidade: completar antes de produção concorrente</h2>
+<div class="note">Os JSONs 01 e 02 demonstram o caminho integrado, mas ainda não implementam fila transacional, lock entre execuções e recuperação automática. Uma falha após a deduplicação pode deixar um evento pendente; duas execuções podem sobrescrever a sessão. As tabelas de inbox, lock e outbox estão no SQL para implementar a camada abaixo. A tabela outbox, por si só, não cria o worker.</div>
+<p><strong>9.1 Entrada durável.</strong> Separe o recebimento do processamento: normalizar → INSERT em wa_events com ON CONFLICT DO NOTHING → confirmar webhook. O ACK só deve ocorrer após persistência durável. Se o trigger da versão instalada responder antes disso, use um ingresso com fila durável, ou Webhook + Respond to Webhook após persistir. Verifique HMAC nesse ingresso. Não prolongue a requisição da Meta com chamadas à transportadora.</p>
+<p><strong>9.2 Worker por telefone.</strong> Schedule Trigger → Postgres selecionar pending por ordem de chegada → Loop → Postgres adquirir lease → IF lock → carregar sessão/rotear. Use <code>wa_try_lock</code> do schema:</p>
+<pre>SELECT wa_try_lock($1,$2,120) AS acquired;
+Query Parameters: {{ [ $json.phone, $execution.id ] }}
+
+-- Renovação, antes de qualquer efeito externo:
+UPDATE wa_phone_locks SET expires_at=now()+interval '120 seconds'
+WHERE phone=$1 AND owner=$2 AND expires_at&gt;now() RETURNING phone;
+
+-- Liberação somente pelo proprietário:
+DELETE FROM wa_phone_locks WHERE phone=$1 AND owner=$2;</pre>
+<p>Se não adquiriu, deixe pending e reagende, sem descartar. Marque processing somente quando adquirir, verifique dono/validade em cada transação e renove antes do TTL. Uma execução que perdeu o lease deve abortar. Campanhas e respostas usam o mesmo lock. Use timeouts curtos; não mantenha lock durante espera de campanha. Escolha apenas um evento pendente por telefone; o worker seguinte só pode avançar após liberar o anterior.</p>
+<p><strong>9.3 Transação estado + efeitos.</strong> Em uma função SQL única ou uma transação no mesmo nó Postgres: atualizar sessão, inserir efeitos em wa_outbox com dedup_key única (<code>event_id:reply:1</code>, <code>event_id:sheet</code>, <code>event_id:notify</code>) e marcar evento done. Não fazer BEGIN em um nó e COMMIT em outro: podem usar conexões diferentes. Opt-out faz merge monotônico (true nunca volta a false por snapshot antigo). Pause/cancelamento humano só pode ser removido por ação administrativa autenticada.</p>
+<p><strong>9.4 Workers de efeitos.</strong> Schedule → Postgres claim com <code>FOR UPDATE SKIP LOCKED</code> dentro de transação → Switch kind → WhatsApp/Sheets/SMTP → registrar resultado. Releia supressão, pausa e last_inbound_at imediatamente antes de enviar. Exceções estritas: confirmação única de opt-out e de transferência, identificadas pelo event_id que gerou a transição. Mensagens antigas de menu/campanha são canceladas. Uma mensagem já aceita pela Meta antes de receber o opt-out não pode ser desfeita.</p>
+<p>Sheets e notificações podem falhar sem impedir que opt-out ou transferência persistam. Repetir a mesma atualização de Sheets é idempotente. A outbox de notificação mantém tentativas e gera alerta operacional se SMTP/Slack estiver indisponível; o bot permanece pausado. Para transferência, confirmação ao cliente e alerta ao vendedor são efeitos independentes.</p>
+<p><strong>9.5 Erros e retries.</strong> Para chamadas de consulta idempotentes, usar backoff, por exemplo 5, 15 e 60 segundos, máximo 3 tentativas. Para envio Meta, não repetir automaticamente POST após timeout ou conexão interrompida: a mensagem pode ter sido aceita. Grave “review/resultado incerto” e reconcilie manualmente. Em rejeição explícita de limite, respeite Retry-After quando fornecido, qualidade da conta e limites; não alterne para texto para contornar o erro. Credenciais inválidas/template recusado → erro definitivo e alerta.</p>
+<p><strong>9.6 Reconciliação e operação.</strong> Outro Schedule detecta pending/processing antigos, reservas de campanha sem conclusão, efeitos failed, notificações sem confirmação e status recebidos antes de o wamid chegar à planilha. Reprocessa efeitos idempotentes; manda envios incertos à revisão. Histórico por wamid deve ser preservado, sem “read → sent” por evento atrasado. Error Trigger → notificação interna com execution ID, nó, erro sanitizado e telefone parcialmente mascarado. Controle retenção e acesso aos dados e não grave tokens nos logs.</p>
+<p><strong>9.7 Cadência global.</strong> Para mais de uma execução/worker de disparo, implemente uma fila única de campanhas com próximo horário disponível no banco, ou limitador global. Batch Size 1 e Wait só limitam uma execução. Um bot para um único número também precisa de serialização por telefone; reduzir concorrência não elimina quedas entre API e gravação.</p>
+<p>Não há promessa de “exactly once” entre PostgreSQL, Google Sheets e a API da Meta. As chaves únicas evitam reprocessamentos locais, mas uma resposta de rede perdida após aceite continua sendo ambígua.</p>
+
+<h2>10. Importação e testes</h2>
+<ol>
+<li>Crie a aba e colunas extras. Limpe duplicatas e registre consentimentos. Use contatos de teste autorizados.</li>
+<li>Execute schema.sql em PostgreSQL dedicado. Teste acesso com o usuário do n8n.</li>
+<li>Importe 01-disparo.referencia.json, 02-atendimento.referencia.json e 03-expiracao.json separadamente por “Import from File”. Mantenha-os desativados.</li>
+<li>Escolha as credenciais em cada nó. Atualize Spreadsheet ID em todos os Sheets, recarregue colunas e confira match por telefone.</li>
+<li>Edite os dois nós Configuracao e remetente SMTP. Nenhuma ocorrência de PREENCHER ou domínio .example pode permanecer em um caminho que será executado.</li>
+<li>Implemente os adaptadores reais, com autorização de pedido e dados corretos de pacote. Cadastre o template e aguarde aprovação.</li>
+<li>Teste com app/número de homologação, revise o formato real recebido pelo Trigger e os índices das saídas do Loop e Switch na sua versão.</li>
+<li>Implemente a camada da seção 9 e simule falhas antes de habilitar campanhas reais.</li>
+<li>Publique a entrada e expiração, valide webhook de produção e só então habilite o disparo com lote pequeno.</li>
+</ol>
+<table>
+<tr><th>Teste</th><th>Resultado esperado</th></tr>
+<tr><td>Telefone inválido, vazio, duplicado, notação científica</td><td>Nenhum envio; duplicatas corrigidas antes de produção.</td></tr>
+<tr><td>Sem opt-in, opt-out, enviado, respondeu, transferido, erro</td><td>Todos excluídos da campanha.</td></tr>
+<tr><td>10 contatos elegíveis</td><td>Template com nome correto; intervalo 3–5 s; uma reserva por campanha/telefone.</td></tr>
+<tr><td>API aceita, falha imediata, timeout e webhook failed</td><td>wamid registrado; erros visíveis; timeout não provoca reenvio cego; falha tardia não rebaixa conversa nova.</td></tr>
+<tr><td>Resposta inicial e escolha dos quatro IDs</td><td>Menu de quatro linhas; cada caminho correto. Recebimento de status não gera resposta.</td></tr>
+<tr><td>“aceita Pix?”, “rastrear”, “frete”, “quero atendente”, texto desconhecido</td><td>Intenção reconhecida por regras; desconhecido reapresenta menu.</td></tr>
+<tr><td>Pedido conhecido, ausente, inválido, inexistente e de outro telefone</td><td>Consulta autorizada; pede código quando necessário; nenhum vazamento de pedido alheio.</td></tr>
+<tr><td>CEP com e sem hífen, curto, com letras, inexistente</td><td>Valida formato; cobertura e existência conferidas no serviço. Não inventa frete.</td></tr>
+<tr><td>Pagamento e conclusão</td><td>Condições reais; “Posso ajudar em algo mais?”; sim/menu/não funcionam.</td></tr>
+<tr><td>Transferência, falha SMTP e próxima mensagem</td><td>Pausa persiste; notificação pendente/repetível; nenhum menu. Vendedor usa caixa compartilhada.</td></tr>
+<tr><td>30 min, 31 min, reinício do n8n e nova mensagem</td><td>Contexto expira; nova mensagem abre menu; opt-out e humano continuam bloqueados.</td></tr>
+<tr><td>“sair”, “parar”, “não quero receber mensagens”, inclusive pausado</td><td>Opt-out salvo antes de confirmação; bloqueia campanha já enfileirada e qualquer novo envio automático.</td></tr>
+<tr><td>Dois webhooks iguais e duas mensagens simultâneas do mesmo telefone</td><td>Um processamento por wamid; ordem por telefone; sem sobrescrita de supressão.</td></tr>
+<tr><td>Opt-out enquanto campanha aguarda / envio já aceito</td><td>Cancelamento antes do despacho; documentar que envio já aceito não é recuperável.</td></tr>
+<tr><td>Google Sheets/DB fora do ar; queda entre API e gravação</td><td>Recuperação por inbox/outbox; bloqueios persistentes; envio ambíguo vai à revisão.</td></tr>
+<tr><td>Evento com mais de 24 h; HTTP inválido; assinatura incorreta</td><td>Não envia resposta livre; fallback apenas de formato; webhook inválido rejeitado.</td></tr>
+<tr><td>Reativação humana administrativa e opt-out</td><td>Somente ação autenticada remove pausa; nunca remove opt-out como efeito colateral.</td></tr>
+</table>
+<p><strong>Verificações locais:</strong> execute <code>node test.cjs</code> para as regras e <code>node build.cjs</code> para regenerar JSONs e verificar conexões e sintaxe Code. Isso não substitui importação no n8n, teste de credenciais, migração SQL e teste ponta a ponta. Para mudar a lógica e manter os JSONs consistentes, edite router.cjs/build.cjs e gere novamente.</p>
+<p class="small">Arquivos: 01-disparo.referencia.json • 02-atendimento.referencia.json • 03-expiracao.json • schema.sql • router.cjs • build.cjs • test.cjs. Nenhum serviço externo foi configurado ou acionado por este projeto.</p>
+</main></html>

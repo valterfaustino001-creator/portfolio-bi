@@ -1,0 +1,61 @@
+{
+  "name": "03 - Expirar sessoes WhatsApp",
+  "nodes": [
+    {
+      "id": "node-1",
+      "name": "A cada minuto",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "node-2",
+      "name": "Expirar apenas contexto",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE wa_sessions\nSET data = (data - 'order' - 'cep') || '{\"state\":\"ENCERRADO\",\"expires_at\":null,\"menu_shown\":false}'::jsonb,\nupdated_at=now()\nWHERE NULLIF(data->>'expires_at','')::timestamptz <= now()\nAND COALESCE(data->>'bot_paused','false') <> 'true'\nAND COALESCE(data->>'opt_out','false') <> 'true';",
+        "options": {
+          "queryReplacement": ""
+        }
+      }
+    }
+  ],
+  "connections": {
+    "A cada minuto": {
+      "main": [
+        [
+          {
+            "node": "Expirar apenas contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "pinData": {}
+}

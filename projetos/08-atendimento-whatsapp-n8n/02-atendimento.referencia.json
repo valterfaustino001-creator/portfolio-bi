@@ -1,0 +1,1292 @@
+{
+  "name": "02 - Atendimento WhatsApp - REFERENCIA configurar antes de ativar",
+  "nodes": [
+    {
+      "id": "node-1",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "updates": [
+          "messages"
+        ],
+        "options": {}
+      },
+      "webhookId": "atendimento-whatsapp"
+    },
+    {
+      "id": "node-2",
+      "name": "Normalizar evento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst out=[];\nfor (const item of $input.all()) {\n const root=item.json.body||item.json;\n const values=root.entry?root.entry.flatMap(e=>(e.changes||[]).map(c=>c.value)):[root];\n for(const v of values) {\n for(const s of v.statuses||[]) {\n  if(!s.id||!s.recipient_id)continue;\n  out.push({json:{kind:'status',id:s.id,phone:String(s.recipient_id),timestamp:s.timestamp,\n   status:s.status,errors:s.errors||[],phone_number_id:v.metadata?.phone_number_id}});\n }\n for(const m of v.messages||[]) {\n  if(!m.id||!m.from)continue;\n  out.push({json:{id:m.id,phone:String(m.from),timestamp:m.timestamp,\n   text:m.interactive?.list_reply?.id||m.interactive?.button_reply?.id||m.button?.payload||m.text?.body||'',\n   type:m.type,phone_number_id:v.metadata?.phone_number_id}});\n }}\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "node-3",
+      "name": "Configuracao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:{...$json,config:{\"graph_version\":\"PREENCHER_VERSAO_SUPORTADA\",\"phone_number_id\":\"PREENCHER_PHONE_NUMBER_ID\",\"template\":\"atendimento_cliente_v1\",\"language\":\"pt_BR\",\"campaign_id\":\"atendimento_2026_01\",\"pagamento\":\"PREENCHER: Pix, cartão e boleto; parcelas, juros, parcela mínima e prazos reais.\",\"tracking_url\":\"https://SEU-ADAPTADOR.example/rastreamento\",\"shipping_url\":\"https://SEU-ADAPTADOR.example/frete\",\"vendedor_email\":\"PREENCHER@empresa.example\"}}};"
+      }
+    },
+    {
+      "id": "node-4",
+      "name": "Numero correto",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.phone_number_id === $json.config.phone_number_id }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-5",
+      "name": "Evento de entrega",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.kind === 'status' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-6",
+      "name": "Registrar entrega",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1300,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO wa_delivery(wamid,status,event_at,phone,payload)\nVALUES($1,$2,to_timestamp($3::double precision),$4,$5::jsonb)\nON CONFLICT DO NOTHING RETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [ $json.id,$json.status,$json.timestamp,$json.phone,JSON.stringify($json) ] }}"
+        }
+      }
+    },
+    {
+      "id": "node-7",
+      "name": "Entrega falhou",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.status === 'failed' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-8",
+      "name": "Contato da falha",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        260,
+        220
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "PREENCHER_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contatos",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "telefone",
+              "lookupValue": "={{ $json.phone }}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-9",
+      "name": "Falha da mensagem atual",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ !!$json.telefone && $json.wamid === $('Configuracao').item.json.id }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-10",
+      "name": "Registrar falha assincrona",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        780,
+        220
+      ],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "PREENCHER_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contatos",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "telefone": "={{ $json.telefone }}",
+            "status_envio": "={{ ['transferido','respondeu'].includes($json.status_envio) ? $json.status_envio : 'erro' }}",
+            "erro_envio": "={{ JSON.stringify($('Configuracao').item.json.errors).slice(0,1000) }}"
+          },
+          "matchingColumns": [
+            "telefone"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-11",
+      "name": "Deduplicar entrada",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1040,
+        220
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH inserted AS (\n INSERT INTO wa_events(event_id,phone,payload) VALUES($1,$2,$3::jsonb)\n ON CONFLICT DO NOTHING RETURNING event_id)\n SELECT EXISTS(SELECT 1 FROM inserted) AS fresh;",
+        "options": {
+          "queryReplacement": "={{ [ $json.id,$json.phone,JSON.stringify($json) ] }}"
+        }
+      }
+    },
+    {
+      "id": "node-12",
+      "name": "Evento novo",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1300,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.fresh }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-13",
+      "name": "Buscar contato",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        0,
+        440
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "PREENCHER_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contatos",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "telefone",
+              "lookupValue": "={{ $('Configuracao').item.json.phone }}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-14",
+      "name": "Carregar sessao",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        260,
+        440
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE((SELECT data FROM wa_sessions WHERE phone=$1),'{}'::jsonb) AS session, $2::jsonb AS contact;",
+        "options": {
+          "queryReplacement": "={{ [ $('Configuracao').item.json.phone,JSON.stringify($json) ] }}"
+        }
+      }
+    },
+    {
+      "id": "node-15",
+      "name": "Decidir atendimento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        440
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "function route({ contact = {}, session = {}, message = {}, config = {}, now = Date.now() }) {\n  const raw = String(message.text || '').trim();\n  const text = raw.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();\n  const yes = v => v === true || ['true', 'sim', '1'].includes(String(v).toLowerCase());\n  const phone = String(message.phone || contact.telefone || '');\n  const expired = !session.expires_at || Date.parse(session.expires_at) <= now;\n  const s = { ...session, state: expired ? 'MENU' : (session.state || 'MENU') };\n  const result = {\n    phone, message_id: message.id, nome: contact.nome || 'cliente',\n    codigo_pedido: contact.codigo_pedido || '',\n    status_envio: 'respondeu', data_ultimo_contato: new Date(now).toISOString(),\n    opt_out: yes(session.opt_out) || yes(contact.opt_out),\n    bot_paused: yes(session.bot_paused) || yes(contact.bot_paused) || contact.status_envio === 'transferido',\n    state: s.state, expires_at: new Date(now + 30 * 60000).toISOString(),\n    last_inbound_at: new Date(Number(message.timestamp || now / 1000) * 1000).toISOString(),\n    action: 'text', text: '', notify: false,\n  };\n  const reply = (body, state = 'MAIS') => {\n    result.state = state;\n    result.text = body + (state === 'MAIS' ? '\\n\\nPosso ajudar em algo mais? Responda “sim”, escolha uma opção ou diga “não”.' : '');\n    return result;\n  };\n  const menu = () => {\n    result.state = 'MENU'; result.action = 'menu';\n    result.text = `Olá, ${result.nome}! Como posso te ajudar?\\n1️⃣ Rastreamento\\n2️⃣ Forma de pagamento\\n3️⃣ Envio / calcular o frete\\n4️⃣ Falar com um vendedor`;\n    return result;\n  };\n  // Opt-out tem prioridade inclusive sobre transferência humana.\n  if (/^(sair|parar|stop|cancelar mensagens)[.! ]*$/.test(text) ||\n      /(?:nao quero|nao desejo|pare de|parar de|nao me).*(?:mensage|receber|envia|contat)/.test(text)) {\n    const already = result.opt_out;\n    result.opt_out = true; result.state = 'ENCERRADO'; result.expires_at = null;\n    result.action = already || Date.parse(result.last_inbound_at) + 24 * 3600000 <= now ? 'none' : 'text';\n    result.text = 'Seu pedido foi registrado. Você não receberá mais mensagens automáticas.';\n    return result;\n  }\n  if (result.opt_out || result.bot_paused) {\n    result.action = 'none';\n    result.status_envio = result.bot_paused ? 'transferido' : 'respondeu';\n    return result;\n  }\n  if (Date.parse(result.last_inbound_at) + 24 * 3600000 <= now) {\n    result.action = 'none'; result.state = 'ENCERRADO'; result.expires_at = null;\n    return result; // Não responder livremente a um evento antigo.\n  }\n  let intent = '';\n  if (text === '4' || /\\b(vendedor|atendente|humano|pessoa)\\b/.test(text) || text === 'vendedor') intent = 'seller';\n  else if (text === '2' || /\\b(pagamento|pagar|pix|cartao|boleto|parcelamento|parcelar)\\b/.test(text)) intent = 'payment';\n  else if (text === '3' || /\\b(frete|cep|envio|entrega custa)\\b/.test(text)) intent = 'shipping';\n  else if (text === '1' || /\\b(rastreamento|rastrear|rastreio|cade meu pedido|onde esta meu pedido)\\b/.test(text)) intent = 'tracking';\n  if (intent === 'seller') {\n    result.bot_paused = true; result.notify = true; result.action = 'handoff';\n    result.status_envio = 'transferido'; result.state = 'HUMANO'; result.expires_at = null;\n    result.text = 'Vou encaminhar seu atendimento para um vendedor. Aguarde o retorno da nossa equipe.';\n    return result;\n  }\n  // Primeira interação mostra o menu; opt-out e pedido humano continuam prioritários.\n  if (!session.menu_shown || expired) return menu();\n  if (intent === 'payment') {\n    return reply(config.pagamento || 'As condições de pagamento ainda não foram configuradas. Digite 4 para falar com um vendedor.');\n  }\n  if (text === 'menu' || text === 'sim') return menu();\n  if (s.state === 'MAIS' && /^(nao|obrigad[oa]|encerrar|tchau)[.! ]*$/.test(text)) {\n    result.expires_at = null;\n    return reply('Obrigado pelo contato! Quando precisar, envie uma nova mensagem.', 'ENCERRADO');\n  }\n  if (intent === 'tracking' || (s.state === 'AGUARDA_PEDIDO' && !intent)) {\n    const order = intent === 'tracking' ? result.codigo_pedido : raw;\n    if (!order || !/^[\\p{L}\\p{N}_./-]{1,64}$/u.test(String(order))) {\n      return reply('Qual é o código do seu pedido?', 'AGUARDA_PEDIDO');\n    }\n    result.action = 'tracking'; result.order = String(order); result.state = 'MAIS';\n    return result;\n  }\n  if (intent === 'shipping') return reply('Informe o CEP de destino, com 8 dígitos.', 'AGUARDA_CEP');\n  if (s.state === 'AGUARDA_CEP' && !intent) {\n    if (!/^\\d{5}-?\\d{3}$/.test(raw)) return reply('CEP inválido. Envie 8 dígitos, por exemplo 01001000.', 'AGUARDA_CEP');\n    result.action = 'shipping'; result.cep = raw.replace('-', ''); result.state = 'MAIS';\n    return result;\n  }\n  return menu();\n}\nreturn {json:route({contact:$json.contact,session:$json.session,message:$('Configuracao').item.json,config:$('Configuracao').item.json.config})};"
+      }
+    },
+    {
+      "id": "node-16",
+      "name": "Rotear acao",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        780,
+        440
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 5,
+        "output": "={{ ({tracking:0,shipping:1,handoff:2,none:3})[$json.action] ?? 4 }}"
+      }
+    },
+    {
+      "id": "node-17",
+      "name": "Consultar rastreamento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        440
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuracao').item.json.config.tracking_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {telefone:$json.phone,codigo_pedido:$json.order} }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-18",
+      "name": "Consultar frete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        440
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuracao').item.json.config.shipping_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {telefone:$json.phone,codigo_pedido:$json.codigo_pedido,cep_destino:$json.cep} }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-19",
+      "name": "Formatar rastreamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        660
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst r={...$('Decidir atendimento').item.json};const b=$json.body;\nconst ok=$json.statusCode>=200&&$json.statusCode<300&&b?.autorizado===true&&b?.status;\nr.action='text';r.text=ok?'Pedido '+r.order+': '+b.status+'. Previsão: '+(b.previsao_entrega||'ainda não informada')+'.':'Não consegui consultar esse pedido. Confira o código ou digite 4 para falar com um vendedor.';\nr.text+='\\n\\nPosso ajudar em algo mais?';if(!ok)r.erro_envio='Falha na consulta de rastreamento';return {json:r};"
+      }
+    },
+    {
+      "id": "node-20",
+      "name": "Formatar frete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        660
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst r={...$('Decidir atendimento').item.json};const b=$json.body;\nconst options=Array.isArray(b?.opcoes)?b.opcoes.filter(o=>Number.isFinite(o.valor)&&o.valor>=0&&Number.isInteger(o.prazo_dias_uteis)&&o.prazo_dias_uteis>=0):[];\nconst ok=$json.statusCode>=200&&$json.statusCode<300&&options.length>0;\nr.action='text';r.text=ok?options.slice(0,8).map(o=>o.servico+': '+o.valor.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+' — '+o.prazo_dias_uteis+' dias úteis').join('\\n'):'Não consegui calcular o frete. Digite 4 para falar com um vendedor.';\nr.text+='\\n\\nPosso ajudar em algo mais?';if(!ok)r.erro_envio='Falha na consulta de frete';return {json:r};"
+      }
+    },
+    {
+      "id": "node-21",
+      "name": "Persistir contexto",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        520,
+        660
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO wa_sessions(phone,data) VALUES($1,$2::jsonb || '{\"menu_shown\":true}'::jsonb)\nON CONFLICT(phone) DO UPDATE SET data=EXCLUDED.data,updated_at=now() RETURNING data;",
+        "options": {
+          "queryReplacement": "={{ [ $json.phone,JSON.stringify($json) ] }}"
+        }
+      }
+    },
+    {
+      "id": "node-22",
+      "name": "Preparar registro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        660
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:{...$json.data,telefone:$json.data.phone}};"
+      }
+    },
+    {
+      "id": "node-23",
+      "name": "Espelhar contato",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        1040,
+        660
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "PREENCHER_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contatos",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "telefone": "={{ $json.telefone }}",
+            "nome": "={{ $json.nome }}",
+            "codigo_pedido": "={{ $json.codigo_pedido }}",
+            "status_envio": "={{ $json.status_envio }}",
+            "data_ultimo_contato": "={{ $json.data_ultimo_contato }}",
+            "opt_out": "={{ $json.opt_out }}",
+            "bot_paused": "={{ $json.bot_paused }}"
+          },
+          "matchingColumns": [
+            "telefone"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-24",
+      "name": "Restaurar contexto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        660
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:$('Preparar registro').item.json};"
+      }
+    },
+    {
+      "id": "node-25",
+      "name": "Notificar vendedor",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        880
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.notify }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-26",
+      "name": "Email para vendedor",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        260,
+        880
+      ],
+      "parameters": {
+        "fromEmail": "PREENCHER@empresa.example",
+        "toEmail": "={{ $('Configuracao').item.json.config.vendedor_email }}",
+        "subject": "={{ \"Atendimento WhatsApp: \"+$json.nome }}",
+        "emailFormat": "text",
+        "text": "={{ \"Cliente: \"+$json.nome+\"\\nTelefone: \"+$json.phone+\"\\nPedido: \"+$json.codigo_pedido+\"\\nBot pausado. Assumir na caixa de atendimento compartilhada.\" }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-27",
+      "name": "Contexto para envio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        880
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:$('Preparar registro').item.json};"
+      }
+    },
+    {
+      "id": "node-28",
+      "name": "Responder permitido",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        880
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.action !== 'none' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-29",
+      "name": "Montar mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        880
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst r=$json;const base={messaging_product:'whatsapp',to:r.phone};\nconst payload=r.action==='menu'?{...base,type:'interactive',interactive:{type:'list',body:{text:r.text},action:{button:'Ver opções',sections:[{title:'Atendimento',rows:[{id:'1',title:'Rastreamento'},{id:'2',title:'Forma de pagamento'},{id:'3',title:'Calcular frete'},{id:'4',title:'Falar com vendedor'}]}]}}}:{...base,type:'text',text:{body:r.text.slice(0,4000)}};\nreturn {json:{...r,payload}};"
+      }
+    },
+    {
+      "id": "node-30",
+      "name": "Enviar resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        880
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/'+$('Configuracao').item.json.config.graph_version+'/'+$('Configuracao').item.json.config.phone_number_id+'/messages' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-31",
+      "name": "Fallback de formato",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        1100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $('Montar mensagem').item.json.payload.type === 'interactive' && $json.statusCode === 400 && [100,131009].includes(Number($json.body?.error?.code)) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-32",
+      "name": "Enviar texto alternativo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        1100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/'+$('Configuracao').item.json.config.graph_version+'/'+$('Configuracao').item.json.config.phone_number_id+'/messages' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {messaging_product:'whatsapp',to:$('Montar mensagem').item.json.phone,type:'text',text:{body:$('Montar mensagem').item.json.text}} }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-33",
+      "name": "Avaliar envio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        1100
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst r={...$('Preparar registro').item.json};const id=$json.body?.messages?.[0]?.id;\nr.wamid=id||'';r.send_ok=!!id;\nif(!id){r.status_envio=r.bot_paused?'transferido':'erro';r.erro_envio=JSON.stringify($json.body?.error||$json.error||$json).slice(0,1000);}\nr.data_ultimo_contato=new Date().toISOString();return {json:r};"
+      }
+    },
+    {
+      "id": "node-34",
+      "name": "Registrar resultado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        780,
+        1100
+      ],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "PREENCHER_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contatos",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "telefone": "={{ $json.phone }}",
+            "status_envio": "={{ $json.status_envio }}",
+            "data_ultimo_contato": "={{ $json.data_ultimo_contato }}",
+            "erro_envio": "={{ $json.erro_envio || \"\" }}",
+            "wamid": "={{ $json.wamid }}"
+          },
+          "matchingColumns": [
+            "telefone"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-35",
+      "name": "Concluir evento",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1040,
+        1100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE wa_events SET state='done',updated_at=now() WHERE event_id=$1 RETURNING event_id;",
+        "options": {
+          "queryReplacement": "={{ [ $('Configuracao').item.json.id ] }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "WhatsApp Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalizar evento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar evento": {
+      "main": [
+        [
+          {
+            "node": "Configuracao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuracao": {
+      "main": [
+        [
+          {
+            "node": "Numero correto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Numero correto": {
+      "main": [
+        [
+          {
+            "node": "Evento de entrega",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evento de entrega": {
+      "main": [
+        [
+          {
+            "node": "Registrar entrega",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Deduplicar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar entrega": {
+      "main": [
+        [
+          {
+            "node": "Entrega falhou",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entrega falhou": {
+      "main": [
+        [
+          {
+            "node": "Contato da falha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contato da falha": {
+      "main": [
+        [
+          {
+            "node": "Falha da mensagem atual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Falha da mensagem atual": {
+      "main": [
+        [
+          {
+            "node": "Registrar falha assincrona",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicar entrada": {
+      "main": [
+        [
+          {
+            "node": "Evento novo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evento novo": {
+      "main": [
+        [
+          {
+            "node": "Buscar contato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar contato": {
+      "main": [
+        [
+          {
+            "node": "Carregar sessao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Carregar sessao": {
+      "main": [
+        [
+          {
+            "node": "Decidir atendimento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decidir atendimento": {
+      "main": [
+        [
+          {
+            "node": "Rotear acao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rotear acao": {
+      "main": [
+        [
+          {
+            "node": "Consultar rastreamento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consultar frete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Persistir contexto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Persistir contexto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Persistir contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar rastreamento": {
+      "main": [
+        [
+          {
+            "node": "Formatar rastreamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar rastreamento": {
+      "main": [
+        [
+          {
+            "node": "Persistir contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar frete": {
+      "main": [
+        [
+          {
+            "node": "Formatar frete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar frete": {
+      "main": [
+        [
+          {
+            "node": "Persistir contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persistir contexto": {
+      "main": [
+        [
+          {
+            "node": "Preparar registro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar registro": {
+      "main": [
+        [
+          {
+            "node": "Espelhar contato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Espelhar contato": {
+      "main": [
+        [
+          {
+            "node": "Restaurar contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restaurar contexto": {
+      "main": [
+        [
+          {
+            "node": "Notificar vendedor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notificar vendedor": {
+      "main": [
+        [
+          {
+            "node": "Email para vendedor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Contexto para envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email para vendedor": {
+      "main": [
+        [
+          {
+            "node": "Contexto para envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contexto para envio": {
+      "main": [
+        [
+          {
+            "node": "Responder permitido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder permitido": {
+      "main": [
+        [
+          {
+            "node": "Montar mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Concluir evento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar mensagem": {
+      "main": [
+        [
+          {
+            "node": "Enviar resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar resposta": {
+      "main": [
+        [
+          {
+            "node": "Fallback de formato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback de formato": {
+      "main": [
+        [
+          {
+            "node": "Enviar texto alternativo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avaliar envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar texto alternativo": {
+      "main": [
+        [
+          {
+            "node": "Avaliar envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avaliar envio": {
+      "main": [
+        [
+          {
+            "node": "Registrar resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar resultado": {
+      "main": [
+        [
+          {
+            "node": "Concluir evento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "pinData": {}
+}
