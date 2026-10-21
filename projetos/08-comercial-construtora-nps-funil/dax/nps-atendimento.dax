@@ -1,0 +1,32 @@
+// =============================================================
+// NPS e resolução de atendimentos
+// Projeto: BI Comercial de Construtora
+// =============================================================
+
+Promotores% =
+IF ( ISBLANK ( DIVIDE ( [Promotores], [Total NPS] ) ), 0, DIVIDE ( [Promotores], [Total NPS] ) )
+
+NPS =
+IF ( ISBLANK ( [Promotores%] - [Detratores%] ), 0, [Promotores%] - [Detratores%] )
+
+Zona de Classificacao =
+SWITCH (
+    TRUE (),
+    [NPS] <= 0,    "-100 a 0: Situação crítica, alerta total",
+    [NPS] <= 0.50, "1 a 50: Há muitos pontos a melhorar",
+    [NPS] <= 0.75, "51 a 75: Seu serviço tem qualidade, continue melhorando",
+    "76 a 100: Zona de excelência, parabéns!"
+)
+
+% Resolução =
+DIVIDE ( [Total Incidentes Encerrados], [Total de Incidentes], 0 )
+
+No Prazo =
+CALCULATE ( [Total Incidentes Encerrados], fIncidentes[Status Fechamento] = "Dentro" )
+
+Aberto Vencido =
+CALCULATE (
+    COUNTROWS ( fIncidentes ),
+    fIncidentes[Status Fechamento] = "Fora",
+    fIncidentes[Status] <> "Encerrado"
+)

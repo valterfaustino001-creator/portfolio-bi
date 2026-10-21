@@ -1,0 +1,26 @@
+// =============================================================
+// Funil de marketing e eficiência do investimento
+// Projeto: BI Comercial de Construtora
+// =============================================================
+
+Conversao Leads =
+DIVIDE ( [Visitantes], [Leads], 0 )
+
+% Conversao Vendas =
+DIVIDE ( [Vendas], [Leads], 0 )
+
+// Custo de aquisição de cliente e custo por lead
+CAC =
+DIVIDE ( [Despesas de MKT], [Vendas] )
+
+CPL =
+DIVIDE ( [Despesas de MKT], [Leads] )
+
+ROI =
+DIVIDE ( [Vendas Faturadas] - [Despesas de MKT], [Despesas de MKT] )
+
+// CAC acumulado até a data do contexto
+CAC Acumulado =
+VAR vDataAtual = MAX ( dCalendario[Data] )
+RETURN
+    CALCULATE ( [CAC], FILTER ( ALL ( dCalendario ), dCalendario[Data] <= vDataAtual ) )

@@ -1,0 +1,46 @@
+// =============================================================
+// Vendas, distratos e comportamento de compra
+// Projeto: BI Comercial de Construtora
+// =============================================================
+
+// Clientes que compram pela primeira vez no período:
+// clientes do período EXCETO os que já compraram antes dele.
+Clientes Novos (1a. Compra) =
+VAR ClientesAtuais = VALUES ( fVGV[COD_CLIENTE] )
+VAR ClientesAntigos =
+    CALCULATETABLE (
+        VALUES ( fVGV[COD_CLIENTE] ),
+        FILTER ( ALL ( dCalendario ), dCalendario[Data] < MIN ( dCalendario[Data] ) )
+    )
+RETURN
+    COUNTROWS ( EXCEPT ( ClientesAtuais, ClientesAntigos ) )
+
+Clientes Recorrentes =
+[Qtd Vendas] - [Clientes Novos (1a. Compra)]
+
+// Tempo entre a primeira e a última compra do cliente, em faixas
+Dif data =
+DATEDIFF ( [Data Min], [Data Max], DAY )
+
+Frequencia de compra =
+SWITCH (
+    TRUE (),
+    [Dif data] < 365, "Menos de 1 ano",
+    [Dif data] < 730, "1 ano",
+    [Dif data] < 1095, "2 anos",
+    [Dif data] < 1460, "3 anos",
+    [Dif data] < 1825, "4 anos",
+    [Dif data] < 2190, "5 anos",
+    [Dif data] < 2555, "6 anos",
+    "7 anos ou mais"
+)
+
+% Distratos =
+DIVIDE ( [Qtd de Distratos], [Qtd Vendas] )
+
+Vendas Líquidas =
+[Vendas Faturadas] - [Valor Distrato]
+
+// Valor presente das parcelas ainda não baixadas
+VPL =
+CALCULATE ( SUM ( fvpl[VALOR_ATUALIZADO_PRESENTE] ), fvpl[PAR_CH_BAIXADA] = "N" )
