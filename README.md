@@ -19,9 +19,7 @@ Sou analista sênior de BI, com 13 anos em dados. Trabalho principalmente com FP
 | 05 | [ETL Pentaho — ERP SCI → PostgreSQL](projetos/05-etl-pentaho-sci-postgresql/) | Engenharia de dados | 4 rotinas de carga · 13 cargas em paralelo · carga incremental por janela de meses | Pentaho PDI, Firebird, PostgreSQL |
 | 06 | [Auditoria de Performance em Power BI](projetos/06-auditoria-performance-powerbi/) | Otimização | 164 tabelas auditadas · causa raiz de refresh lento · script Tabular Editor | pbixray, Python, Tabular Editor |
 | 07 | [Gestão Comercial, Metas e Pacotes](projetos/07-gestao-comercial-metas-pacotes/) | Comercial / Varejo de serviços | Meta diária por dias úteis · Pareto dinâmico · pacotes vendidos x consumidos · 11 KPIs | Power BI, DAX, M (Google Sheets) |
-| 08 | [Atendimento WhatsApp com n8n](projetos/08-atendimento-whatsapp-n8n/) | Automação / Atendimento | Projeto de referência · 3 workflows JSON · menu interativo · sessão por telefone · opt-out | n8n, WhatsApp Cloud API, Google Sheets, PostgreSQL |
-
-O projeto 08 é uma implementação de referência para configuração e homologação, com [passo a passo de importação no n8n](projetos/08-atendimento-whatsapp-n8n/IMPORTAR-NO-N8N.md). Não representa uma implantação já realizada em cliente.
+| 08 | [BI Comercial de Construtora](projetos/08-comercial-construtora-nps-funil/) | Comercial / Pós-venda | NPS · resolução de chamados · clientes novos x recorrentes · funil HubSpot · CAC, CPL e ROI | Power BI, DAX, MySQL, HubSpot |
 
 ---
 
@@ -51,7 +49,7 @@ portfolio-bi/
 │   ├── 05-etl-pentaho-sci-postgresql/
 │   ├── 06-auditoria-performance-powerbi/
 │   ├── 07-gestao-comercial-metas-pacotes/
-│   └── 08-atendimento-whatsapp-n8n/
+│   └── 08-comercial-construtora-nps-funil/
 └── docs/
     └── padroes-de-desenvolvimento.md
 ```
