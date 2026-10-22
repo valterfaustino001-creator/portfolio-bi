@@ -2,7 +2,9 @@
 
 > Relatório para uma rede de unidades que vende **serviços, produtos e pacotes pré-pagos** (o cliente compra o pacote e consome as sessões depois). Acompanha faturamento, metas diárias por colaborador, comissões, curva de Pareto por classe de serviço, pacotes vendidos x consumidos, um painel de KPIs estratégicos e um resumo financeiro.
 
-<!-- Tire o comentário depois de colocar o print na pasta imagens/: ![Resumo comercial](imagens/01-resumo.png) -->
+![Visão geral](imagens/02-visao-geral.png)
+
+<sub>Prints de demonstração. Nomes de colaboradores foram desfocados.</sub>
 
 ## Problema de negócio
 
@@ -77,6 +79,15 @@ erDiagram
 - **Pacotes vendidos x consumidos:** acumulados, % de consumo, YTD e LYTD só até o último dia com venda (evita comparar um ano parcial com um ano cheio).
 - **Ingestão de planilhas anuais** com `Table.Combine`. Ver [`power-query/combinar-planilhas-anuais.m`](power-query/combinar-planilhas-anuais.m).
 
-## Imagens
+## Galeria
 
-Prints em [`imagens/`](imagens/). Veja [`imagens/LEIA-ME.md`](imagens/LEIA-ME.md).
+<sub>Nomes de colaboradores desfocados nos prints.</sub>
+
+| | |
+|---|---|
+| ![Home](imagens/01-home.png) **Home e filtros** | ![Visão geral](imagens/02-visao-geral.png) **Visão geral do faturamento** |
+| ![Pareto](imagens/03-pareto.png) **Pareto por classe, com corte ajustável** | ![Real x Meta](imagens/04-real-vs-meta.png) **Real x meta por profissional** |
+| ![Metas diárias](imagens/05-metas-diarias.png) **Meta diária acumulada x faturamento** | ![Pacotes vendidos](imagens/06-pacotes-vendidos.png) **Pacotes vendidos x ano anterior** |
+| ![Filtros](imagens/07-pacotes-filtros.png) **Painel de filtros recolhível** | ![Pacotes consumidos](imagens/08-pacotes-consumidos.png) **Pacotes consumidos (YTD x LYTD)** |
+| ![IA](imagens/09-influenciadores-ia.png) **Principais influenciadores (IA)** | ![DRE](imagens/10-financeiro-dre.png) **DRE por unidade com AH/AV** |
+| ![Dash financeiro](imagens/11-dash-financeiro.png) **Dashboard financeiro** | |
