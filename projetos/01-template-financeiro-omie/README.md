@@ -2,7 +2,9 @@
 
 > Modelo semântico e relatório de Power BI para gestão financeira (FP&A) de empresas que usam o ERP **Omie**. É um *template* replicável: o mesmo arquivo atende vários clientes, trocando só os parâmetros de conexão.
 
-<!-- Tire o comentário depois de colocar o print na pasta imagens/: ![Capa do relatório](imagens/01-home.png) -->
+![Painel gerencial](imagens/02-painel-gerencial.png)
+
+<sub>Prints com dados da base de testes (empresa de demonstração).</sub>
 
 ## Problema de negócio
 
@@ -80,6 +82,24 @@ Outras fatos do modelo: `fNotaFiscal`, `fNFServico`, `fPedidosdeVendas`, `fPedid
 - **Consulta parametrizada multiempresa** em M. Ver [`power-query/consulta-parametrizada.m`](power-query/consulta-parametrizada.m).
 - **Visuais personalizados** usados com critério: Chiclet Slicer, KPI Donut, Waffle, KPI Status with History.
 
-## Imagens
+## Galeria
 
-Coloque os prints na pasta [`imagens/`](imagens/). A lista do que capturar está em [`imagens/LEIA-ME.md`](imagens/LEIA-ME.md).
+Prints do relatório com dados da **base de testes** (empresa de demonstração do ERP).
+
+### Visão estratégica
+
+| | |
+|---|---|
+| ![Home](imagens/01-home.png) **Home e navegação** | ![Painel gerencial](imagens/02-painel-gerencial.png) **Painel gerencial** |
+| ![Resumo DRE](imagens/03-resumo-dre.png) **Resumo da DRE** | ![Analítico de receitas](imagens/04-analitico-receitas.png) **Receita x previsto x ano anterior** |
+| ![DRE](imagens/05-dre.png) **DRE gerencial** | ![DRE AV/AH](imagens/06-dre-av-ah.png) **DRE com análise vertical e horizontal** |
+| ![DRE Receitas](imagens/07-dre-receitas.png) **Receitas: clientes novos x recorrentes** | ![DFC](imagens/08-dfc.png) **DFC** |
+
+### Visão operacional
+
+| | |
+|---|---|
+| ![Fluxo diário](imagens/09-fluxo-caixa-diario.png) **Fluxo de caixa projetado (diário)** | ![Fluxo mensal](imagens/10-fluxo-caixa-mensal.png) **Fluxo de caixa mensal** |
+| ![Contas a receber](imagens/11-contas-receber.png) **Contas a receber e aging** | ![Eficiência CR](imagens/12-eficiencia-cr.png) **Eficiência do recebimento** |
+| ![PMR](imagens/13-pmr.png) **Prazo médio de recebimento** | ![Contas a pagar](imagens/14-contas-pagar.png) **Contas a pagar** |
+| ![PMP](imagens/15-pmp.png) **Prazo médio de pagamento** | ![Custos e despesas](imagens/16-custos-despesas.png) **Custos e despesas por categoria** |
