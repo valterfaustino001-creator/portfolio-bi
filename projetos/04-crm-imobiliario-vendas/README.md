@@ -2,7 +2,9 @@
 
 > Relatório comercial para incorporadoras e construtoras, alimentado pela API de um CRM imobiliário. Acompanha o funil completo, do lead à venda, além do estoque de unidades e do desempenho de corretores e imobiliárias.
 
-<!-- Tire o comentário depois de colocar o print na pasta imagens/: ![Painel de vendas](imagens/01-vendas.png) -->
+![Painel de leads](imagens/02-leads.png)
+
+<sub>Prints com empreendimentos, corretores, gestores e imobiliárias anonimizados.</sub>
 
 ## Problema de negócio
 
@@ -59,6 +61,14 @@ erDiagram
 - **Forecast com parâmetro *what-if*:** projeção = vendas do ano anterior × (1 + % escolhido pelo usuário).
 - **Cores dinâmicas** de crescimento (azul se positivo, rosa se negativo) aplicadas por formatação condicional baseada em medida.
 
-## Imagens
+## Galeria
 
-Prints em [`imagens/`](imagens/). Veja [`imagens/LEIA-ME.md`](imagens/LEIA-ME.md).
+<sub>Empreendimentos, corretores, gestores e imobiliárias anonimizados (A, B, C, D).</sub>
+
+| | |
+|---|---|
+| ![Home](imagens/01-home.png) **Home e navegação** | ![Leads](imagens/02-leads.png) **Leads: funil, origem/mídia e etapas** |
+| ![Motivos](imagens/03-leads-motivos-cancelamento.png) **Tooltip com motivos de cancelamento** | ![Clientes](imagens/04-clientes.png) **Perfil de clientes e mapa** |
+| ![Visitas](imagens/05-visitas.png) **Visitas por corretor, situação e mídia** | ![Reservas](imagens/06-reservas.png) **Reservas por VGV e tempo médio por etapa** |
+| ![Vendas](imagens/07-vendas.png) **Vendas, ranking de corretores e forecast** | ![Estoque](imagens/08-estoque.png) **Estoque de unidades** |
+| ![VSO](imagens/09-estoque-vso.png) **VSO (velocidade de vendas sobre oferta)** | |
